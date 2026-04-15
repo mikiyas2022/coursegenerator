@@ -1,2 +1,9 @@
 manim
 pydub
+fastapi
+uvicorn[standard]
+transformers
+torch
+scipy
+soundfile
+uroman
