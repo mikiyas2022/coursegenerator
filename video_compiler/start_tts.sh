@@ -36,7 +36,7 @@ if [[ "${1:-}" == "--wait" ]]; then
   echo -n "    Waiting for model to load "
   MAX_WAIT=120   # MMS model may take a while on first run (download)
   ELAPSED=0
-  while ! curl -sf "$HEALTH_URL" | grep -q '"engine_ready": true' 2>/dev/null; do
+  while ! curl -sf "$HEALTH_URL" | grep -q '"engine_ready":true' 2>/dev/null; do
     sleep 2
     ELAPSED=$((ELAPSED + 2))
     echo -n "."

@@ -39,6 +39,7 @@ import os
 import uuid
 import tempfile
 import time
+os.environ["HF_HOME"] = "/tmp/huggingface_cache"
 import numpy as np
 import torch
 from pathlib import Path
@@ -54,8 +55,6 @@ import uvicorn
 # ─────────────────────────────────────────────────────────────────────────────
 # Configuration
 # ─────────────────────────────────────────────────────────────────────────────
-
-os.environ["HF_HOME"] = "/tmp/huggingface_cache"
 
 MODEL_NAME = "facebook/mms-tts-amh"
 TTS_PORT   = 8100
