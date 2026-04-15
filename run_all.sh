@@ -1,5 +1,11 @@
 #!/usr/bin/env bash
-# run_all.sh — Start the STEM Video Factory (MMS TTS server + Next.js frontend)
+# run_all.sh — Start the complete STEM AI Studio stack
+#
+#  Service stack:
+#    1. Meta MMS TTS Server       → http://127.0.0.1:8100
+#    2. Agentic Orchestrator      → http://127.0.0.1:8200
+#    3. Next.js Frontend          → http://localhost:3011
+#
 set -e
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
 
@@ -7,41 +13,39 @@ PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
 WEBAPP="$PROJECT_ROOT/web_app"
 VENV=/tmp/stem_venv
 
-echo "======================================"
-echo "  STEM Video Factory - Local Stack"
-echo "======================================"
+echo "============================================"
+echo "  STEM AI Studio — Full Stack Startup"
+echo "============================================"
 
-# ── Check venv ────────────────────────────────────────────────────────────────
+# ── Venv check ────────────────────────────────────────────────────────────
 if [ ! -f "$VENV/bin/python3" ]; then
-  echo ""
-  echo "⚠  /tmp/stem_venv not found. Run rebuild_venv.sh first:"
-  echo "   ./rebuild_venv.sh"
-  echo ""
+  echo "❌  /tmp/stem_venv not found."
+  echo "    Run: ./rebuild_venv.sh"
   exit 1
 fi
 
-# ── Check Manim ───────────────────────────────────────────────────────────────
-if ! "$VENV/bin/manim" --version > /dev/null 2>&1; then
-  echo ""
-  echo "⚠  Manim not found in venv. Run rebuild_venv.sh."
-  echo ""
-fi
-
-# ── Start MMS TTS server (background, wait for readiness) ─────────────────────
+# ── 1. Start TTS Server ───────────────────────────────────────────────────
 echo ""
-echo "Starting Amharic MMS TTS server …"
 bash "$PROJECT_ROOT/video_compiler/start_tts.sh" --wait
 
-# ── Install web app node deps if needed ───────────────────────────────────────
+# ── 2. Start Orchestrator ─────────────────────────────────────────────────
+echo ""
+bash "$PROJECT_ROOT/agent_core/start_orchestrator.sh" --wait
+
+# ── 3. Install web app node deps if needed ────────────────────────────────
 if [ ! -d "$WEBAPP/node_modules" ]; then
-  echo "Installing Next.js dependencies …"
+  echo ""
+  echo "Installing Next.js dependencies…"
   cd "$WEBAPP" && npm install && cd "$PROJECT_ROOT"
 fi
 
-# ── Start Next.js dev server ──────────────────────────────────────────────────
+# ── 4. Start Next.js ──────────────────────────────────────────────────────
 echo ""
-echo "Starting Next.js frontend on http://localhost:3011 …"
-echo "TTS server running on  http://localhost:8100"
+echo "============================================"
+echo "  🚀 Starting Next.js on http://localhost:3011"
+echo "  🎙  TTS Server:      http://localhost:8100"
+echo "  🤖  Orchestrator:    http://localhost:8200"
+echo "============================================"
 echo ""
 cd "$WEBAPP"
 exec node ./node_modules/next/dist/bin/next dev -p 3011

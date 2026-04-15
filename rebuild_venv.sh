@@ -1,34 +1,30 @@
 #!/usr/bin/env bash
-# rebuild_venv.sh — Create /tmp/stem_venv with all pipeline dependencies
-# Replaces the old Edge-TTS stack with local Meta MMS TTS via FastAPI.
+# rebuild_venv.sh — Rebuild /tmp/stem_venv with all pipeline dependencies
 set -e
 
 VENV=/tmp/stem_venv
 PYTHON=/opt/homebrew/bin/python3.13
 
-echo "========================================="
-echo "  STEM Pipeline — venv rebuild"
+echo "=========================================="
+echo "  STEM AI Studio — venv rebuild"
 echo "  Target: $VENV"
-echo "========================================="
+echo "=========================================="
 
-# ── Remove any existing (possibly corrupt) venv ───────────────────────────────
 if [ -d "$VENV" ]; then
-  echo "Removing existing venv …"
+  echo "Removing existing venv…"
   rm -rf "$VENV"
 fi
 
-# ── Create fresh venv ─────────────────────────────────────────────────────────
-echo "Creating venv with $PYTHON …"
+echo "Creating venv with $PYTHON…"
 "$PYTHON" -m venv "$VENV"
 
-# ── Upgrade pip ───────────────────────────────────────────────────────────────
-echo "Upgrading pip …"
+echo "Upgrading pip…"
 "$VENV/bin/pip" install --upgrade pip --quiet
 
-# ── Core packages ─────────────────────────────────────────────────────────────
-echo "Installing core pipeline packages …"
+echo "Installing packages (this may take a few minutes)…"
 "$VENV/bin/pip" install \
   manim \
+  manim-voiceover \
   pydub \
   fastapi \
   "uvicorn[standard]" \
@@ -37,32 +33,30 @@ echo "Installing core pipeline packages …"
   scipy \
   soundfile \
   uroman \
+  langgraph \
+  langchain-openai \
+  langchain-core \
+  requests \
   --quiet
 
 echo ""
-echo "========================================="
-echo "  Validating installation …"
-echo "========================================="
+echo "=========================================="
+echo "  Validating…"
+echo "=========================================="
 
 "$VENV/bin/python3" -c "
-from manim import *
-import pydub, fastapi, uvicorn, transformers, torch, scipy, soundfile, uroman
-print('  manim          ✓')
-print('  pydub          ✓')
-print('  fastapi        ✓')
-print('  uvicorn        ✓')
-print('  transformers   ✓')
-print('  torch          ✓')
-print('  scipy          ✓')
-print('  soundfile      ✓')
-print('  uroman         ✓')
+import manim, pydub, fastapi, uvicorn
+import transformers, torch, scipy, soundfile, uroman
+import langgraph, langchain_openai, langchain_core, requests
+from manim_voiceover import VoiceoverScene
+print('  All packages OK ✓')
 "
 
 echo ""
-echo "========================================="
-echo "  ALL DONE ✓"
+echo "=========================================="
+echo "  DONE ✓"
 echo ""
-echo "  Next steps:"
-echo "  1. Run the full stack:   ./run_all.sh"
-echo "  2. Or start TTS only:    ./video_compiler/start_tts.sh --wait"
-echo "========================================="
+echo "  Start everything:  ./run_all.sh"
+echo "  TTS only:          ./video_compiler/start_tts.sh --wait"
+echo "  Orchestrator only: ./agent_core/start_orchestrator.sh --wait"
+echo "=========================================="

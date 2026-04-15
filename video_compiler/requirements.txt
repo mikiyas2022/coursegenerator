@@ -1,4 +1,5 @@
 manim
+manim-voiceover
 pydub
 fastapi
 uvicorn[standard]
@@ -7,3 +8,7 @@ torch
 scipy
 soundfile
 uroman
+langgraph
+langchain-openai
+langchain-core
+requests
