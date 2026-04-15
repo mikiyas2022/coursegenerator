@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+*.egg-info/
+
+# Node / Next.js
+web_app/node_modules/
+web_app/.next/
+web_app/.pnpm-store/
+.pnpm-store/
+
+# macOS
+.DS_Store
+
+# Manim media cache
+media/
+
+# Video output (generated at runtime)
+Local_Video_Output/
+
+# Large model files (user downloads via rebuild_venv.sh / install_piper.sh)
+video_compiler/models/*.onnx
+video_compiler/piper/
+
+# Logs
+*.log
+
+# Temp runtime venv (lives in /tmp)
+# /tmp/stem_venv is not in this dir so nothing to ignore
+
+# Environment variables
+.env
+.env.local
