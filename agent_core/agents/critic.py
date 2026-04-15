@@ -1,46 +1,196 @@
 """
-agents/critic.py — Self-Healing Critic Agent
+agents/critic.py — Self-Healing Critic Agent (Syntax + Visual)
 
-Executes Manim code in a sandboxed subprocess. On failure, extracts the
-traceback and returns it to the orchestrator for re-routing to the
-Manim Coder for self-healing.
-
-On success, returns the path to the rendered preview video.
+Two-stage validation:
+  Stage 1 — Syntax/Runtime: run Manim -ql, catch Python tracebacks
+  Stage 2 — Visual:         run Manim -s (last frame), pass PNG to VL model,
+             ask "Are text elements overlapping shapes? Is anything off-screen?"
+             Feed corrections back to Manim Coder up to MAX_VISUAL_RETRIES.
 """
 
+import base64
 import os
 import re
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from config import VENV_MANIM, MANIM_ENV_PATCH, MAX_CRITIC_RETRIES
-from agents.manim_coder import MMS_SERVICE_HEADER
+from config import (
+    VENV_MANIM, MANIM_ENV_PATCH,
+    MAX_CRITIC_RETRIES, MAX_VISUAL_RETRIES,
+    get_vl_llm,
+)
+from agents.manim_coder import SCRIPT_HEADER_TEMPLATE
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Build the full script with dynamic agent_core path injected
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _build_script(code_classes: list[str]) -> str:
+    """Prepend the dynamic header (with theme path) to all scene classes."""
+    agent_core_path = os.path.dirname(os.path.dirname(__file__))
+    header = SCRIPT_HEADER_TEMPLATE.format(agent_core_path=agent_core_path)
+    return header + "\n\n" + "\n\n".join(code_classes)
 
 
 def _build_env() -> dict:
-    """Build the subprocess environment with all required Manim paths."""
     env = os.environ.copy()
     env.update(MANIM_ENV_PATCH)
     return env
 
 
 def _extract_scene_names(code: str) -> list[str]:
-    """Parse class names from the generated Python code."""
     return re.findall(r"^class\s+(\w+)\s*\(", code, re.MULTILINE)
 
 
-def _find_rendered_video(output_folder: str, scene_name: str, quality: str) -> str | None:
-    """Locate the rendered MP4 produced by Manim."""
-    # Manim puts output at: <output_folder>/videos/<script_stem>/480p15/<SceneName>.mp4
+def _find_file(output_folder: str, scene_name: str, ext: str) -> str | None:
     for root, _, files in os.walk(output_folder):
         for f in files:
-            if f.endswith(".mp4") and scene_name in f:
+            if f.endswith(ext) and scene_name in f:
                 return os.path.join(root, f)
     return None
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Stage 1 — Syntax / Runtime check (manim -ql)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _run_syntax_check(
+    script_path: str,
+    scene_name: str,
+    output_folder: str,
+    retry_count: int,
+) -> dict:
+    env = _build_env()
+    cmd = [VENV_MANIM, "-ql", "--disable_caching", "--media_dir", output_folder,
+           script_path, scene_name]
+
+    print(
+        f"  [critic-syntax] Attempt {retry_count+1}/{MAX_CRITIC_RETRIES+1} "
+        f"— rendering {scene_name} (ql)…", flush=True,
+    )
+    try:
+        result = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=300)
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": "Manim timed out after 5 minutes."}
+    except FileNotFoundError:
+        return {"ok": False, "error": f"Manim not found at {VENV_MANIM}. Run rebuild_venv.sh."}
+
+    combined = (result.stdout or "") + (result.stderr or "")
+    if result.returncode != 0:
+        tb = _extract_traceback(combined) or combined[-2000:]
+        print(f"  [critic-syntax] FAIL:\n{tb[:400]}", flush=True)
+        return {"ok": False, "error": tb}
+
+    video_path = _find_file(output_folder, scene_name, ".mp4")
+    return {"ok": True, "video_path": video_path or output_folder}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Stage 2 — Visual check (manim -s → PNG → VL model)
+# ─────────────────────────────────────────────────────────────────────────────
+
+VISUAL_CRITIQUE_PROMPT = """You are a visual quality auditor for educational animations.
+Analyze this Manim animation frame (16:9 aspect ratio, 1920×1080).
+
+Check for these specific visual problems:
+1. TEXT OVERLAP: Are any text elements overlapping with shapes, arrows, or other text?
+2. OFF-SCREEN: Is any element clipping outside the frame edges?
+3. CROWDING: Are elements too close together (less than 0.2 Manim units of padding)?
+4. READABILITY: Is any text smaller than ~24px effective size?
+
+If the frame looks clean, reply with exactly: VISUAL_OK
+
+If there are problems, reply with VISUAL_ISSUES and then list EXACT Manim spatial corrections needed, for example:
+  - Move the formula: formula.next_to(triangle, DOWN, buff=0.5)
+  - Scale down text: title.scale(0.7)
+  - Shift diagram: diagram.shift(RIGHT * 1.5)
+
+Be specific — reference the actual Manim objects and positions."""
+
+
+def _run_visual_check(
+    script_path: str,
+    scene_name: str,
+    output_folder: str,
+    visual_attempt: int,
+) -> dict:
+    """
+    Save last frame with manim -s, pass PNG to VL model.
+    Returns {"ok": True} or {"ok": False, "feedback": "corrections..."}
+    """
+    print(
+        f"  [critic-visual] Frame capture attempt {visual_attempt+1}/{MAX_VISUAL_RETRIES} "
+        f"for {scene_name}…", flush=True,
+    )
+
+    env = _build_env()
+    # manim -s saves only the last frame (much faster than full render)
+    frames_dir = os.path.join(output_folder, "frames")
+    os.makedirs(frames_dir, exist_ok=True)
+
+    cmd = [VENV_MANIM, "-s", "--disable_caching", "--media_dir", frames_dir,
+           script_path, scene_name]
+
+    try:
+        result = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=120)
+    except subprocess.TimeoutExpired:
+        print("  [critic-visual] Frame capture timed out — skipping visual check.", flush=True)
+        return {"ok": True, "skipped": True}
+    except FileNotFoundError:
+        return {"ok": True, "skipped": True}
+
+    if result.returncode != 0:
+        # Frame capture failed — don't block the pipeline, just skip visual check
+        print("  [critic-visual] Frame capture failed — skipping visual check.", flush=True)
+        return {"ok": True, "skipped": True}
+
+    # Find the PNG
+    png_path = _find_file(frames_dir, scene_name, ".png")
+    if not png_path:
+        print("  [critic-visual] PNG not found — skipping.", flush=True)
+        return {"ok": True, "skipped": True}
+
+    print(f"  [critic-visual] Analysing frame: {png_path}", flush=True)
+
+    # Encode as base64 for VL model
+    try:
+        with open(png_path, "rb") as f:
+            img_b64 = base64.b64encode(f.read()).decode("utf-8")
+    except Exception as exc:
+        print(f"  [critic-visual] PNG read error ({exc}) — skipping.", flush=True)
+        return {"ok": True, "skipped": True}
+
+    # Call VL model
+    try:
+        from langchain_core.messages import HumanMessage
+        vl_llm = get_vl_llm(max_tokens=600)
+        message = HumanMessage(content=[
+            {"type": "text",      "text": VISUAL_CRITIQUE_PROMPT},
+            {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_b64}"}},
+        ])
+        response = vl_llm.invoke([message])
+        reply = (response.content or "").strip()
+        print(f"  [critic-visual] VL reply: {reply[:200]}", flush=True)
+
+        if "VISUAL_OK" in reply:
+            return {"ok": True, "feedback": ""}
+        else:
+            # Extract the feedback portion
+            feedback = reply.replace("VISUAL_ISSUES", "").strip()
+            return {"ok": False, "feedback": feedback}
+
+    except Exception as exc:
+        # VL model unavailable (not installed, wrong model name, etc.) — skip gracefully
+        print(f"  [critic-visual] VL model unavailable ({exc}) — skipping visual check.", flush=True)
+        return {"ok": True, "skipped": True}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Public API
+# ─────────────────────────────────────────────────────────────────────────────
 
 def run_critic(
     code_classes: list[str],
@@ -48,96 +198,58 @@ def run_critic(
     retry_count: int = 0,
 ) -> dict:
     """
-    Write code to a temp file, run Manim -ql (low quality, fast), and
-    return success/failure + error text or preview path.
-
-    Args:
-        code_classes:   List of Python class strings from manim_coder.
-        output_folder:  Where to write the script and media output.
-        retry_count:    Current retry iteration (for logging).
+    Stage 1 (syntax) + Stage 2 (visual) critique.
 
     Returns:
-        {"success": True,  "preview_path": str}
+        {"success": True,  "preview_path": str, "visual_feedback": str}
         {"success": False, "error": str}
+        {"success": False, "visual_error": str, "visual_feedback": str}
     """
     os.makedirs(output_folder, exist_ok=True)
 
-    # Assemble the full script: header + all scene classes
-    full_script = MMS_SERVICE_HEADER + "\n\n" + "\n\n".join(code_classes)
+    full_script = _build_script(code_classes)
     script_path = os.path.join(output_folder, "generated_lesson.py")
-
     with open(script_path, "w", encoding="utf-8") as f:
         f.write(full_script)
 
-    # Only render the FIRST scene class for the preview (fastest feedback loop)
     scene_names = _extract_scene_names(full_script)
     if not scene_names:
-        return {
-            "success": False,
-            "error": "No class definitions found in generated code. The LLM returned non-class output.",
-        }
+        return {"success": False, "error": "No class definitions found in generated code."}
 
     first_scene = scene_names[0]
-    env = _build_env()
 
-    cmd = [
-        VENV_MANIM,
-        "-ql",                  # low quality — fast preview
-        "--disable_caching",
-        "--media_dir", output_folder,
-        script_path,
-        first_scene,
-    ]
+    # ── Stage 1: Syntax check ───────────────────────────────────────────────
+    syntax_result = _run_syntax_check(script_path, first_scene, output_folder, retry_count)
+    if not syntax_result["ok"]:
+        return {"success": False, "error": syntax_result["error"]}
 
-    print(
-        f"  [critic] Attempt {retry_count + 1}/{MAX_CRITIC_RETRIES + 1} — "
-        f"rendering {first_scene} (low quality)…",
-        flush=True,
-    )
+    preview_path = syntax_result["video_path"]
 
-    try:
-        result = subprocess.run(
-            cmd,
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=300,
-        )
-    except subprocess.TimeoutExpired:
-        return {"success": False, "error": "Manim rendering timed out after 5 minutes."}
-    except FileNotFoundError:
+    # ── Stage 2: Visual check (up to MAX_VISUAL_RETRIES passes) ────────────
+    for vis_attempt in range(MAX_VISUAL_RETRIES):
+        visual_result = _run_visual_check(script_path, first_scene, output_folder, vis_attempt)
+
+        if visual_result.get("skipped"):
+            break  # VL unavailable — skip visual healing entirely
+
+        if visual_result["ok"]:
+            print(f"  [critic-visual] Frame is visually clean ✓", flush=True)
+            break
+
+        feedback = visual_result.get("feedback", "")
+        print(f"  [critic-visual] Visual issues detected. Feedback:\n{feedback[:400]}", flush=True)
         return {
-            "success": False,
-            "error": f"Manim binary not found at {VENV_MANIM}. Run rebuild_venv.sh.",
+            "success":         False,
+            "visual_error":    True,
+            "visual_feedback": feedback,
         }
 
-    combined_output = (result.stdout or "") + (result.stderr or "")
-
-    if result.returncode != 0:
-        # Extract the traceback for the self-healer
-        error_text = _extract_traceback(combined_output) or combined_output[-2000:]
-        print(f"  [critic] FAILED. Traceback:\n{error_text[:400]}", flush=True)
-        return {"success": False, "error": error_text}
-
-    # Success — find the rendered file
-    preview_path = _find_rendered_video(output_folder, first_scene, "480p15")
-    if not preview_path:
-        # Manim succeeded but we couldn't locate the file — still a soft success
-        preview_path = output_folder
-
-    print(f"  [critic] SUCCESS → {preview_path}", flush=True)
+    print(f"  [critic] FULL PASS ✓ → {preview_path}", flush=True)
     return {"success": True, "preview_path": preview_path}
 
 
-def run_final_render(
-    output_folder: str,
-    orientation: str = "landscape",
-) -> dict:
-    """
-    Re-render ALL scene classes in high quality (1080p60 or 1080x1920).
-
-    Called separately after user approves the preview.
-    """
+def run_final_render(output_folder: str, orientation: str = "landscape") -> dict:
+    """Re-render ALL scene classes in high quality (1080p60 or portrait)."""
     script_path = os.path.join(output_folder, "generated_lesson.py")
     if not os.path.exists(script_path):
         return {"success": False, "error": "generated_lesson.py not found. Run preview first."}
@@ -149,25 +261,18 @@ def run_final_render(
     if not scene_names:
         return {"success": False, "error": "No scene classes found."}
 
-    env    = _build_env()
+    env      = _build_env()
     res_flag = ["--resolution", "1080,1920"] if orientation == "portrait" else []
 
     rendered_paths = []
     for scene in scene_names:
-        cmd = [
-            VENV_MANIM,
-            "-qh",              # high quality
-            "--disable_caching",
-            *res_flag,
-            "--media_dir", output_folder,
-            script_path,
-            scene,
-        ]
-        print(f"  [critic-final] Rendering {scene} (high quality)…", flush=True)
-        result = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=600)
+        cmd = [VENV_MANIM, "-qh", "--disable_caching", *res_flag,
+               "--media_dir", output_folder, script_path, scene]
+        print(f"  [critic-final] Rendering {scene} (4K)…", flush=True)
+        result = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=900)
         if result.returncode != 0:
             return {"success": False, "error": result.stderr[-1500:]}
-        path = _find_rendered_video(output_folder, scene, "1080p60")
+        path = _find_file(output_folder, scene, ".mp4")
         if path:
             rendered_paths.append(path)
 
@@ -175,13 +280,12 @@ def run_final_render(
 
 
 def _extract_traceback(output: str) -> str:
-    """Pull just the Python traceback lines from Manim's verbose output."""
     lines    = output.splitlines()
     tb_start = None
     for i, line in enumerate(lines):
-        if "Traceback (most recent call last)" in line or "Error:" in line:
+        if "Traceback (most recent call last)" in line or line.strip().startswith("Error:"):
             tb_start = i
             break
     if tb_start is not None:
-        return "\n".join(lines[tb_start:tb_start + 60])
+        return "\n".join(lines[tb_start:tb_start + 80])
     return output[-1500:]

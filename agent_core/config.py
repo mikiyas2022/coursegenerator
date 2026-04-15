@@ -4,6 +4,7 @@ config.py — Shared LLM configuration for all agents.
 Supports both Ollama (default) and LM Studio via environment variable:
   export STEM_LLM_BACKEND=lmstudio   (default: ollama)
   export STEM_LLM_MODEL=qwen2.5-coder:32b
+  export STEM_VL_MODEL=qwen2.5-vl:7b    (vision model for visual critic)
 """
 
 import os
@@ -14,18 +15,20 @@ from langchain_openai import ChatOpenAI
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
 OLLAMA_API_KEY  = "ollama"
 OLLAMA_MODEL    = os.getenv("STEM_LLM_MODEL", "qwen2.5-coder:32b")
+OLLAMA_VL_MODEL = os.getenv("STEM_VL_MODEL",  "qwen2.5-vl:7b")   # vision model
 
 # ── LM Studio ────────────────────────────────────────────────────────────────
 LM_STUDIO_BASE_URL = os.getenv("LM_STUDIO_BASE_URL", "http://localhost:1234/v1")
 LM_STUDIO_API_KEY  = "lm-studio"
 LM_STUDIO_MODEL    = os.getenv("STEM_LLM_MODEL", "qwen2.5-coder-32b-instruct")
+LM_STUDIO_VL_MODEL = os.getenv("STEM_VL_MODEL",  "qwen2.5-vl-7b-instruct")
 
 # ── Backend selection ─────────────────────────────────────────────────────────
 BACKEND = os.getenv("STEM_LLM_BACKEND", "ollama").lower()  # "ollama" | "lmstudio"
 
 # ── TTS Server ────────────────────────────────────────────────────────────────
-TTS_SERVER_URL       = os.getenv("TTS_SERVER_URL", "http://127.0.0.1:8100")
-ORCHESTRATOR_PORT    = int(os.getenv("ORCHESTRATOR_PORT", "8200"))
+TTS_SERVER_URL    = os.getenv("TTS_SERVER_URL", "http://127.0.0.1:8100")
+ORCHESTRATOR_PORT = int(os.getenv("ORCHESTRATOR_PORT", "8200"))
 
 # ── Manim environment ─────────────────────────────────────────────────────────
 VENV_PYTHON = "/tmp/stem_venv/bin/python3"
@@ -37,7 +40,8 @@ MANIM_ENV_PATCH = {
     "TEXMFCNF": "/opt/homebrew/Cellar/texlive/20260301/share/texmf-dist/web2c",
 }
 
-MAX_CRITIC_RETRIES = 3
+MAX_CRITIC_RETRIES  = 3
+MAX_VISUAL_RETRIES  = 2   # extra VL critique passes after code passes syntax check
 
 
 def get_llm(temperature: float = 0.15, max_tokens: int = 4096) -> ChatOpenAI:
@@ -50,11 +54,32 @@ def get_llm(temperature: float = 0.15, max_tokens: int = 4096) -> ChatOpenAI:
             temperature=temperature,
             max_tokens=max_tokens,
         )
-    # default: Ollama
     return ChatOpenAI(
         model=OLLAMA_MODEL,
         openai_api_base=OLLAMA_BASE_URL,
         openai_api_key=OLLAMA_API_KEY,
         temperature=temperature,
+        max_tokens=max_tokens,
+    )
+
+
+def get_vl_llm(max_tokens: int = 512) -> ChatOpenAI:
+    """
+    Return a ChatOpenAI instance for the Vision-Language model.
+    Used by the Visual Critic to inspect rendered frames.
+    """
+    if BACKEND == "lmstudio":
+        return ChatOpenAI(
+            model=LM_STUDIO_VL_MODEL,
+            openai_api_base=LM_STUDIO_BASE_URL,
+            openai_api_key=LM_STUDIO_API_KEY,
+            temperature=0.1,
+            max_tokens=max_tokens,
+        )
+    return ChatOpenAI(
+        model=OLLAMA_VL_MODEL,
+        openai_api_base=OLLAMA_BASE_URL,
+        openai_api_key=OLLAMA_API_KEY,
+        temperature=0.1,
         max_tokens=max_tokens,
     )

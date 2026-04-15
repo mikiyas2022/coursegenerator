@@ -1,16 +1,11 @@
 """
 agents/manim_coder.py — Manim Developer Agent
 
-Translates enriched scene dicts (concept + Amharic script + visual plan)
-into valid ManimCE Python classes using manim-voiceover with the local
-MMS TTS service.
+Translates enriched scene dicts into valid ManimCE Python classes using
+manim-voiceover + the local MMS TTS service.
 
-STRICT RULES injected into every LLM call:
-  - ManimCE only (no ManimGL / 3b1b syntax)
-  - Amharic text → Text("...", font="Nyala") — never Tex() for Ge'ez
-  - ALWAYS use tracker.duration for animation timing
-  - One Python class per scene (modularity)
-  - Use ValueTracker + add_updater for complex continuous animations
+Key update (Obj 2): Every generated class MUST import and use theme.py
+constants/utilities — no hardcoded colours or font strings.
 """
 
 import re
@@ -19,25 +14,29 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from config import get_llm
-
 from langchain_core.messages import HumanMessage, SystemMessage
 
-
 # ─────────────────────────────────────────────────────────────────────────────
-# The LocalMMSService snippet injected as header into every generated script
+# Script header (injected by critic.py before running manim)
+# NOTE: theme.py path is substituted dynamically in critic._build_script()
 # ─────────────────────────────────────────────────────────────────────────────
-MMS_SERVICE_HEADER = '''import os, sys, hashlib, subprocess, requests
+# This module only defines the TEMPLATE string used to build the real header.
+SCRIPT_HEADER_TEMPLATE = '''import os, sys, hashlib, requests
 os.environ["PATH"] = (
     "/tmp/stem_venv/bin:/Library/TeX/texbin:"
     "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
 )
 os.environ["HF_HOME"] = "/tmp/huggingface_cache"
 
+# ── Theme & Manim ─────────────────────────────────────────────────────────────
+sys.path.insert(0, "{agent_core_path}")
+from theme import *          # BG_COLOR, ACCENT_COLOR, setup_scene, amharic_text …
 from manim import *
 from manim_voiceover import VoiceoverScene
 from manim_voiceover.services.base import SpeechService
 
 
+# ── Local MMS TTS routing ─────────────────────────────────────────────────────
 class LocalMMSService(SpeechService):
     """Routes manim-voiceover TTS calls to the local Meta MMS server."""
 
@@ -55,98 +54,129 @@ class LocalMMSService(SpeechService):
         if not os.path.exists(path):
             resp = requests.post(
                 "http://127.0.0.1:8100/generate_audio",
-                json={"text": text, "persona_id": self.persona_id, "output_path": path},
+                json={{"text": text, "persona_id": self.persona_id, "output_path": path}},
                 timeout=180,
             )
             resp.raise_for_status()
             path = resp.json().get("output_path", path)
-        return {"original_audio": path}
+        return {{"original_audio": path}}
 
 '''
 
+# Keep MMS_SERVICE_HEADER as a fallback alias (used by older imports)
+MMS_SERVICE_HEADER = SCRIPT_HEADER_TEMPLATE
+
+
 # ─────────────────────────────────────────────────────────────────────────────
-# System prompt for the Manim Developer Agent
+# System prompt — Obj 2: enforce theme.py usage in ALL generated code
 # ─────────────────────────────────────────────────────────────────────────────
-SYSTEM_PROMPT = """You are a senior ManimCE developer writing production-ready animation code.
+SYSTEM_PROMPT = """You are a senior ManimCE developer generating production-ready animation code.
+The theme module is ALREADY imported (from theme import *). You MUST use it.
 
 ABSOLUTE RULES — breaking any rule causes a runtime crash:
-1. Import ONLY from `manim` (not manim.opengl, not manimlib, not manimgl)
-2. Amharic text MUST use: Text("ሰላም", font="Nyala", font_size=48)
-   NEVER use Tex(), MathTex(), or MarkupText() for Ge'ez script
-3. Latin/Math formulas use: MathTex(r"F = ma") or Tex(r"$F_x$")
-4. Class MUST inherit from VoiceoverScene only
-5. ALWAYS call self.set_speech_service(LocalMMSService(persona_id=PERSONA_ID))
-   as the FIRST line of construct()
-6. camera background: self.camera.background_color = "#0B0E14"
-7. ALWAYS use tracker.duration for run_time inside voiceover blocks:
+1. Import ONLY from `manim`. Do NOT re-import manim or theme — they are already in scope.
+2. Amharic Ge'ez text: use amharic_text("ሰላም", font_size=FONT_SIZE_BODY) — helper from theme
+   NEVER use Tex(), MathTex(), or Text() directly for Ge'ez script
+3. Latin/Math: MathTex(r"F = ma", color=FORMULA_COLOR, font_size=FONT_SIZE_MATH)
+4. Background: call setup_scene(self) as the VERY FIRST line of construct()
+   (This sets BG_COLOR, default fonts — do not set background manually)
+5. Inherit ONLY from VoiceoverScene
+6. ALWAYS call self.set_speech_service(LocalMMSService(persona_id=PERSONA_ID))
+   right after setup_scene(self)
+7. ALWAYS use tracker.duration for ALL run_time values inside voiceover blocks:
      with self.voiceover(text="...Amharic...") as tracker:
          self.play(Create(obj), run_time=tracker.duration * 0.8)
          self.wait(tracker.duration * 0.2)
-8. Use ValueTracker + always_redraw for continuous animations
-9. Do NOT import LocalMMSService — it is already defined in the file header
-10. Generate ONE class per scene. Name it exactly as given.
-11. Output ONLY raw Python code. NO markdown fences. NO explanations.
+8. Spatial safety: use clamp_to_screen(mob) on any Mobject placed near edges
+9. Use branded_axes() instead of raw Axes()
+10. Use branded_vector() instead of raw Arrow() for vectors
+11. Use ValueTracker + always_redraw for continuous/parametric animations
+12. Generate ONE class per scene. Name it EXACTLY as given.
+13. Output ONLY raw Python class code. NO markdown fences. NO explanations.
 
-TEMPLATE (follow this structure):
+AVAILABLE THEME API (all in scope via `from theme import *`):
+  Colors: BG_COLOR, PRIMARY_COLOR, ACCENT_COLOR, FORMULA_COLOR, TEXT_COLOR,
+          MUTED_COLOR, WARNING_COLOR, VECTOR_COLOR, HIGHLIGHT_COLOR, GRID_COLOR
+  Sizes:  FONT_SIZE_TITLE, FONT_SIZE_HEADER, FONT_SIZE_BODY, FONT_SIZE_LABEL, FONT_SIZE_MATH
+  Fonts:  FONT_AMHARIC="Nyala", FONT_LATIN="Inter"
+  fns:    setup_scene(self), amharic_text("ሰላም"), latin_text("Physics"),
+          title_card(amharic, latin), formula_box(r"F=ma"), branded_axes(),
+          branded_vector(), branded_circle(), section_divider(), clamp_to_screen(mob)
+
+CORRECT TEMPLATE:
 class Scene1_Example(VoiceoverScene):
     def construct(self):
+        setup_scene(self)
         self.set_speech_service(LocalMMSService(persona_id=1))
-        self.camera.background_color = "#0B0E14"
-        Text.set_default(font="Inter", weight=BOLD)
 
-        with self.voiceover(text="ሰላም ልጆች፣ ዛሬ...") as tracker:
-            title = Text("Example", font="Nyala", font_size=52, color=WHITE)
-            self.play(Write(title), run_time=tracker.duration * 0.85)
+        heading = title_card("ሰላም ልጆች", "Introduction")
+        self.add(heading)
+
+        with self.voiceover(text="ሰላም ልጆች፣ ዛሬ ፒታጎረስን እናያለን።") as tracker:
+            formula = formula_box(r"a^2 + b^2 = c^2")
+            clamp_to_screen(formula)
+            self.play(Write(formula[1]), Create(formula[0]), run_time=tracker.duration * 0.85)
             self.wait(tracker.duration * 0.15)
 """
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Public API
+# ─────────────────────────────────────────────────────────────────────────────
 
 def run_manim_coder(
     scenes: list[dict],
     persona_id: int = 1,
     error_context: str = "",
+    visual_feedback: str = "",
     previous_code: list[str] | None = None,
 ) -> list[str]:
     """
-    Generate ManimCE Python class code for each scene.
+    Generate ManimCE scene classes.
 
     Args:
-        scenes:         Enriched scene dicts from scriptwriter.
-        persona_id:     Voice persona (1-5) for LocalMMSService.
-        error_context:  Stderr from the Critic (triggers self-healing mode).
-        previous_code:  Previous generated classes (for self-healing).
+        scenes:          Enriched scene dicts from scriptwriter.
+        persona_id:      Voice persona (1–5) for LocalMMSService.
+        error_context:   Manim traceback string (syntax self-heal).
+        visual_feedback: VL model critique string (visual self-heal).
+        previous_code:   Previous generated classes (needed for healing).
 
     Returns:
-        List of Python class strings (one per scene).
+        List of Python class code strings (one per scene).
     """
-    llm = get_llm(temperature=0.05)  # very low temp for deterministic code
+    llm = get_llm(temperature=0.05)
 
-    if error_context and previous_code:
-        return _heal_code(llm, previous_code, error_context)
+    if (error_context or visual_feedback) and previous_code:
+        combined_error = "\n".join(filter(None, [error_context, visual_feedback]))
+        return _heal_code(llm, previous_code, combined_error)
 
     class_strings = []
     for scene in scenes:
         class_code = _generate_scene_class(llm, scene, persona_id)
         class_strings.append(class_code)
 
-    print(f"  [manim_coder] Generated {len(class_strings)} scene classes.", flush=True)
+    print(f"  [manim_coder] Generated {len(class_strings)} theme-aware scene classes.", flush=True)
     return class_strings
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Internal helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
 def _generate_scene_class(llm, scene: dict, persona_id: int) -> str:
-    """Generate a single VoiceoverScene class for one scene."""
     formulas_str = ", ".join(scene.get("latex_formulas", [])) or "None"
 
-    user_prompt = f"""Generate a ManimCE VoiceoverScene class for this scene.
+    user_prompt = f"""Generate a ManimCE VoiceoverScene class for this educational scene.
 
-Scene Name (class name): {scene["scene_name"]}
-Concept: {scene["concept"]}
-Visual Plan: {scene["visual"]}
-Amharic Narration: {scene["amharic_script"]}
-LaTeX Formulas: {formulas_str}
-Voice persona_id: {persona_id}
+Class name:       {scene["scene_name"]}
+Concept:          {scene["concept"]}
+Visual Plan:      {scene["visual"]}
+Amharic Script:   {scene["amharic_script"]}
+LaTeX Formulas:   {formulas_str}
+Persona ID:       {persona_id}
 
-Follow ALL rules. Output ONLY the Python class code."""
+REMINDER: use theme API (amharic_text, formula_box, branded_axes, etc), setup_scene(self) first.
+Output ONLY the Python class definition."""
 
     try:
         response = llm.invoke([
@@ -154,44 +184,43 @@ Follow ALL rules. Output ONLY the Python class code."""
             HumanMessage(content=user_prompt),
         ])
         code = response.content.strip()
-        # Strip any accidental markdown fences
         code = re.sub(r"^```(?:python)?", "", code, flags=re.MULTILINE).strip()
-        code = re.sub(r"```$", "", code, flags=re.MULTILINE).strip()
+        code = re.sub(r"```$",            "", code, flags=re.MULTILINE).strip()
         return code
+
     except Exception as exc:
         print(f"  [manim_coder] LLM error for {scene['scene_name']}: {exc}", flush=True)
-        # Minimal fallback class that won't crash
-        name   = scene["scene_name"]
-        text   = scene.get("amharic_script", "ምንም ዓይነት ንግግር አልተሰጠም።")[:100]
+        name = scene["scene_name"]
+        text = scene.get("amharic_script", "ምንም ዓይነት ንግግር አልተሰጠም።")[:100]
+        concept = scene.get("concept", "Scene").replace('"', "'")
         return f"""
 class {name}(VoiceoverScene):
     def construct(self):
+        setup_scene(self)
         self.set_speech_service(LocalMMSService(persona_id={persona_id}))
-        self.camera.background_color = "#0B0E14"
+        heading = title_card("{concept}")
+        self.add(heading)
         with self.voiceover(text="{text}") as tracker:
-            label = Text("{scene.get('concept', 'Scene')}", font="Nyala", font_size=48, color=WHITE)
-            self.play(Write(label), run_time=tracker.duration)
+            self.play(Write(heading), run_time=tracker.duration)
 """
 
 
 def _heal_code(llm, previous_classes: list[str], error: str) -> list[str]:
-    """
-    Self-healing: ask the LLM to fix the code given the Manim traceback.
-    Fixes are applied to all classes as a unified block for context.
-    """
-    print(f"  [manim_coder] Self-healing — error snippet: {error[:150]}", flush=True)
+    """Self-heal: ask the LLM to fix both runtime and visual errors."""
+    print(f"  [manim_coder] Healing — error: {error[:200]}", flush=True)
 
     full_code = "\n\n".join(previous_classes)
-    user_prompt = f"""The following ManimCE code produced this error when rendered:
+    user_prompt = f"""The following ManimCE code produced this error. Fix ONLY the error.
 
 ERROR:
-{error[:1500]}
+{error[:1800]}
 
 CODE:
 {full_code}
 
-Fix ONLY the specific error. Output the complete fixed Python code for ALL classes.
-No markdown fences. No explanations."""
+Output the COMPLETE fixed Python code for ALL classes.
+No markdown fences. No explanations.
+REMEMBER: use theme API functions. Do NOT re-import manim."""
 
     try:
         response = llm.invoke([
@@ -200,19 +229,16 @@ No markdown fences. No explanations."""
         ])
         fixed = response.content.strip()
         fixed = re.sub(r"^```(?:python)?", "", fixed, flags=re.MULTILINE).strip()
-        fixed = re.sub(r"```$", "", fixed, flags=re.MULTILINE).strip()
+        fixed = re.sub(r"```$",            "", fixed, flags=re.MULTILINE).strip()
 
-        # Split back into individual classes by "class " declarations
         class_blocks = re.split(r"(?=^class\s+\w+\()", fixed, flags=re.MULTILINE)
         class_blocks = [b.strip() for b in class_blocks if b.strip().startswith("class ")]
-
         if not class_blocks:
-            # LLM returned one big blob — treat as single entry
             return [fixed]
 
         print(f"  [manim_coder] Healed {len(class_blocks)} class(es).", flush=True)
         return class_blocks
 
     except Exception as exc:
-        print(f"  [manim_coder] Self-healing LLM error ({exc}). Returning original.", flush=True)
+        print(f"  [manim_coder] Heal LLM error: {exc}. Returning original.", flush=True)
         return previous_classes

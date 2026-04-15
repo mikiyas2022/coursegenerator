@@ -14,94 +14,98 @@ interface FormState {
   orientation:    'landscape' | 'portrait';
 }
 
+interface StoryboardScene {
+  scene_name:     string;
+  concept:        string;
+  explanation:    string;
+  visual:         string;
+  amharic_script: string;
+  sentences:      string[];
+  latex_formulas: string[];
+  narrative_hook?: string;
+}
+
 interface StreamEvent {
   type:    string;
   payload: Record<string, unknown>;
 }
 
-interface SceneStep {
-  scene_name:    string;
-  concept:       string;
-  explanation:   string;
-  visual:        string;
-  narrative_hook?: string;
-  amharic_script?: string;
-}
-
-type Phase =
-  | 'idle' | 'researching' | 'scripting' | 'coding'
-  | 'rendering' | 'healing' | 'preview_ready' | 'complete' | 'error';
+type UIView =
+  | 'input'
+  | 'planning'           // Researcher + Scriptwriter running
+  | 'storyboard'         // Editable storyboard cards
+  | 'rendering'          // Manim Coder + Critic running
+  | 'preview_ready'
+  | 'complete'
+  | 'error';
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
 const PERSONAS = [
-  { id: 1, key: 'mekdes',    icon: '👩‍🏫', name: 'Mekdes',    title: 'Warm Tutor',         badge: 'DEFAULT', color: 'emerald' },
-  { id: 2, key: 'ameha',     icon: '👨‍🏫', name: 'Ameha',     title: 'Deep Expert',         badge: 'MALE',    color: 'blue'    },
-  { id: 3, key: 'dawit',     icon: '⚡',   name: 'Dawit',     title: 'Energetic Coach',     badge: 'MALE',    color: 'blue'    },
-  { id: 4, key: 'selamawit', icon: '📖',  name: 'Selamawit', title: 'Patient Professor',   badge: 'FEMALE',  color: 'pink'    },
-  { id: 5, key: 'tigist',    icon: '🎓',  name: 'Tigist',    title: 'Bright Tutor',        badge: 'FEMALE',  color: 'pink'    },
+  { id: 1, icon: '👩‍🏫', name: 'Mekdes',    badge: 'DEFAULT', color: 'emerald' },
+  { id: 2, icon: '👨‍🏫', name: 'Ameha',     badge: 'MALE',    color: 'blue'    },
+  { id: 3, icon: '⚡',   name: 'Dawit',     badge: 'MALE',    color: 'blue'    },
+  { id: 4, icon: '📖',  name: 'Selamawit', badge: 'FEMALE',  color: 'pink'    },
+  { id: 5, icon: '🎓',  name: 'Tigist',    badge: 'FEMALE',  color: 'pink'    },
 ];
-
-const AUDIENCES  = ['Child (Grade 1–6)', 'High School (Grade 7–12)', 'University', 'Professional'];
-const STYLES     = ['Playful / Storytelling', 'Formal / Academic', 'Inquiry-Based / 3b1b Style'];
-
-const BADGE_COLORS: Record<string, string> = {
+const AUDIENCES = ['Child (Grade 1–6)', 'High School (Grade 7–12)', 'University', 'Professional'];
+const STYLES    = ['Playful / Storytelling', 'Formal / Academic', 'Inquiry-Based / 3b1b Style'];
+const BADGE     : Record<string, string> = {
   emerald: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
   blue:    'bg-blue-500/20 text-blue-400 border-blue-500/30',
   pink:    'bg-pink-500/20 text-pink-400 border-pink-500/30',
 };
+const SCENE_COLORS = ['#1E3A8A','#065F46','#6D28D9','#92400E','#1E40AF','#064E3B'];
 
-// ── Component ──────────────────────────────────────────────────────────────
+// ── Main Component ─────────────────────────────────────────────────────────
 
 export default function StudioPage() {
-  const [mounted, setMounted] = useState(false);
-  const [form, setForm] = useState<FormState>({
-    topic:          '',
-    audience:       'High School (Grade 7–12)',
-    style:          'Inquiry-Based / 3b1b Style',
-    metaphor:       '',
-    sourceMaterial: '',
-    personaId:      1,
-    orientation:    'landscape',
+  const [mounted,       setMounted]       = useState(false);
+  const [view,          setView]          = useState<UIView>('input');
+  const [form,          setForm]          = useState<FormState>({
+    topic: '', audience: 'High School (Grade 7–12)',
+    style: 'Inquiry-Based / 3b1b Style', metaphor: '',
+    sourceMaterial: '', personaId: 1, orientation: 'landscape',
   });
 
-  const [phase,       setPhase]       = useState<Phase>('idle');
-  const [events,      setEvents]      = useState<StreamEvent[]>([]);
-  const [steps,       setSteps]       = useState<SceneStep[]>([]);
-  const [scenes,      setScenes]      = useState<SceneStep[]>([]);
-  const [codeCount,   setCodeCount]   = useState(0);
-  const [healAttempt, setHealAttempt] = useState(0);
-  const [previewPath, setPreviewPath] = useState('');
-  const [outputFolder,setOutputFolder]= useState('');
-  const [errorMsg,    setErrorMsg]    = useState('');
-  const [showSource,  setShowSource]  = useState(false);
+  // Storyboard data (editable)
+  const [scenes,        setScenes]        = useState<StoryboardScene[]>([]);
 
-  const outputRef = useRef<HTMLDivElement>(null);
+  // Render phase
+  const [renderEvents,  setRenderEvents]  = useState<StreamEvent[]>([]);
+  const [previewPath,   setPreviewPath]   = useState('');
+  const [outputFolder,  setOutputFolder]  = useState('');
+  const [errorMsg,      setErrorMsg]      = useState('');
+  const [statusMsg,     setStatusMsg]     = useState('');
+  const [healAttempt,   setHealAttempt]   = useState(0);
+  const [visualFeedback,setVisualFeedback]= useState('');
+  const [showSource,    setShowSource]    = useState(false);
+
+  const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { setMounted(true); }, []);
-  useEffect(() => {
-    outputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-  }, [events]);
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [renderEvents]);
 
   const setF = (k: keyof FormState, v: unknown) =>
     setForm(f => ({ ...f, [k]: v }));
 
-  const handleGenerate = useCallback(async () => {
-    if (!form.topic.trim()) return;
+  // ── Scene editing ──────────────────────────────────────────────────────
+  const updateScene = (idx: number, field: keyof StoryboardScene, value: unknown) =>
+    setScenes(prev => prev.map((s, i) => i === idx ? { ...s, [field]: value } : s));
 
-    // Reset
-    setPhase('researching');
-    setEvents([]);
-    setSteps([]);
+  const updateLatex = (idx: number, value: string) =>
+    updateScene(idx, 'latex_formulas', value.split(',').map(s => s.trim()).filter(Boolean));
+
+  // ── Phase 1: Generate Storyboard ──────────────────────────────────────
+  const generateStoryboard = useCallback(async () => {
+    if (!form.topic.trim()) return;
+    setView('planning');
     setScenes([]);
-    setCodeCount(0);
-    setHealAttempt(0);
-    setPreviewPath('');
-    setOutputFolder('');
     setErrorMsg('');
+    setStatusMsg('Researcher is analyzing your topic…');
 
     try {
-      const res = await fetch('/api/create', {
+      const res = await fetch('/api/storyboard', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -110,75 +114,111 @@ export default function StudioPage() {
           style:           form.style,
           metaphor:        form.metaphor,
           source_material: form.sourceMaterial,
-          persona_id:      form.personaId,
-          orientation:     form.orientation,
         }),
       });
 
-      if (!res.ok || !res.body) {
-        const j = await res.json().catch(() => ({ error: 'Connection failed' }));
-        throw new Error(j.error || 'Orchestrator unreachable');
-      }
-
+      if (!res.body) throw new Error('No response stream');
       const reader  = res.body.getReader();
       const decoder = new TextDecoder();
-      let   buffer  = '';
+      let   buf     = '';
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() ?? '';
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split('\n');
+        buf = lines.pop() ?? '';
 
         for (const line of lines) {
           if (!line.startsWith('data: ')) continue;
           try {
             const ev: StreamEvent = JSON.parse(line.slice(6));
-            setEvents(prev => [...prev, ev]);
-
-            switch (ev.type) {
-              case 'researcher_done':
-                setPhase('scripting');
-                setSteps((ev.payload.steps as SceneStep[]) || []);
-                break;
-              case 'script_done':
-                setPhase('coding');
-                setScenes((ev.payload.scenes as SceneStep[]) || []);
-                break;
-              case 'code_done':
-                setPhase('rendering');
-                setCodeCount((ev.payload.classes_count as number) || 0);
-                break;
-              case 'self_healing':
-                setPhase('healing');
-                setHealAttempt((ev.payload.attempt as number) || 1);
-                break;
-              case 'preview_ready':
-                setPhase('preview_ready');
-                setPreviewPath((ev.payload.preview_path as string) || '');
-                setOutputFolder((ev.payload.output_folder as string) || '');
-                break;
-              case 'complete':
-                setPhase('complete');
-                setOutputFolder((ev.payload.output_folder as string) || '');
-                break;
-              case 'error':
-                setPhase('error');
-                setErrorMsg((ev.payload.message as string) || 'Unknown error');
-                break;
+            if (ev.type === 'researcher_done') {
+              setStatusMsg('Writing Amharic script…');
             }
-          } catch { /* skip malformed SSE line */ }
+            if (ev.type === 'storyboard_ready') {
+              const incoming = (ev.payload.scenes as StoryboardScene[]) || [];
+              setScenes(incoming);
+              setView('storyboard');
+            }
+            if (ev.type === 'error') {
+              setErrorMsg((ev.payload.message as string) || 'Unknown error');
+              setView('error');
+            }
+          } catch { /* ignore bad lines */ }
         }
       }
     } catch (err: unknown) {
-      setPhase('error');
       setErrorMsg(err instanceof Error ? err.message : String(err));
+      setView('error');
     }
   }, [form]);
 
-  const handleFinalRender = async () => {
+  // ── Phase 2: Approve & Render ──────────────────────────────────────────
+  const approveAndRender = useCallback(async () => {
+    setView('rendering');
+    setRenderEvents([]);
+    setPreviewPath('');
+    setOutputFolder('');
+    setHealAttempt(0);
+    setVisualFeedback('');
+    setErrorMsg('');
+
+    try {
+      const res = await fetch('/api/render', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          scenes:      scenes,
+          persona_id:  form.personaId,
+          orientation: form.orientation,
+        }),
+      });
+
+      if (!res.body) throw new Error('No response stream');
+      const reader  = res.body.getReader();
+      const decoder = new TextDecoder();
+      let   buf     = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split('\n');
+        buf = lines.pop() ?? '';
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          try {
+            const ev: StreamEvent = JSON.parse(line.slice(6));
+            setRenderEvents(prev => [...prev, ev]);
+            switch (ev.type) {
+              case 'self_healing':
+                setHealAttempt((ev.payload.attempt as number) || 1); break;
+              case 'visual_critique':
+                setVisualFeedback((ev.payload.feedback as string) || ''); break;
+              case 'preview_ready':
+                setPreviewPath((ev.payload.preview_path as string) || '');
+                setOutputFolder((ev.payload.output_folder as string) || '');
+                setView('preview_ready'); break;
+              case 'complete':
+                setOutputFolder((ev.payload.output_folder as string) || '');
+                setView('complete'); break;
+              case 'error':
+                setErrorMsg((ev.payload.message as string) || 'Unknown error');
+                setView('error'); break;
+            }
+          } catch { /* ignore */ }
+        }
+      }
+    } catch (err: unknown) {
+      setErrorMsg(err instanceof Error ? err.message : String(err));
+      setView('error');
+    }
+  }, [scenes, form]);
+
+  // ── Phase 3: Final 4K Render ──────────────────────────────────────────
+  const renderFinal = async () => {
     if (!outputFolder) return;
     try {
       const res = await fetch('http://localhost:8200/render_final', {
@@ -187,444 +227,419 @@ export default function StudioPage() {
         body:    JSON.stringify({ output_folder: outputFolder, orientation: form.orientation }),
       });
       const data = await res.json();
-      if (data.success) {
-        setPhase('complete');
-      } else {
-        setErrorMsg(data.error || 'Final render failed');
-        setPhase('error');
-      }
+      if (data.success) setView('complete');
+      else { setErrorMsg(data.error || 'Final render failed'); setView('error'); }
     } catch (e: unknown) {
       setErrorMsg(e instanceof Error ? e.message : String(e));
-      setPhase('error');
+      setView('error');
     }
   };
 
   if (!mounted) return (
     <div className="min-h-screen bg-[#0B0E14] flex items-center justify-center">
-      <div className="text-blue-500 font-mono animate-pulse text-sm tracking-widest">
-        INITIALIZING AI STUDIO…
-      </div>
+      <div className="text-blue-500 font-mono animate-pulse text-xs tracking-widest">INITIALIZING AI STUDIO…</div>
     </div>
   );
 
-  const isRunning = ['researching','scripting','coding','rendering','healing'].includes(phase);
-  const selectedPersona = PERSONAS.find(p => p.id === form.personaId)!;
+  const persona = PERSONAS.find(p => p.id === form.personaId)!;
+  const isRunning = view === 'planning' || view === 'rendering';
 
+  // ════════════════════════════════════════════════════════════
   return (
-    <main className="min-h-screen bg-[#0B0E14] text-gray-100 font-sans" style={{ fontFamily: "'Inter', sans-serif" }}>
-      {/* ── HEADER ─────────────────────────────────────────────────────── */}
-      <header className="border-b border-white/5 bg-[#0D1117]/80 backdrop-blur-md sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+    <main className="min-h-screen bg-[#0B0E14] text-gray-100" style={{ fontFamily: "'Inter', sans-serif" }}>
+
+      {/* ── HEADER ─────────────────────────────────────────────────── */}
+      <header className="sticky top-0 z-50 border-b border-white/5 bg-[#0B0E14]/90 backdrop-blur-md">
+        <div className="max-w-7xl mx-auto px-6 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center text-sm">🎬</div>
+            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center text-xs">🎬</div>
             <div>
-              <h1 className="font-black text-white text-base tracking-tight">STEM AI Studio</h1>
-              <p className="text-[10px] text-gray-500 tracking-widest uppercase">Autonomous Amharic Video Production</p>
+              <p className="font-black text-white text-sm tracking-tight">STEM AI Studio</p>
+              <p className="text-[9px] text-gray-600 uppercase tracking-widest">Autonomous Amharic Video Production</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <span className={`h-2 w-2 rounded-full ${isRunning ? 'bg-emerald-400 animate-pulse' : 'bg-gray-600'}`} />
-            <span className="text-xs text-gray-500">{isRunning ? 'Generating…' : 'Ready'}</span>
+          <div className="flex items-center gap-4">
+            {/* Phase breadcrumb */}
+            <div className="hidden sm:flex items-center gap-1 text-[10px]">
+              {(['input','storyboard','rendering','complete'] as const).map((v, i, arr) => (
+                <span key={v} className="flex items-center gap-1">
+                  <span className={`px-2 py-0.5 rounded-full font-bold ${
+                    view === v || (view === 'planning' && v === 'storyboard') || (view === 'preview_ready' && v === 'rendering')
+                      ? 'bg-blue-600 text-white'
+                      : ['complete','preview_ready'].includes(view) && i < arr.length
+                        ? 'bg-emerald-900/50 text-emerald-400'
+                        : 'bg-white/5 text-gray-600'
+                  }`}>
+                    {v === 'input' ? '1. Input' : v === 'storyboard' ? '2. Storyboard' : v === 'rendering' ? '3. Render' : '4. Done'}
+                  </span>
+                  {i < arr.length - 1 && <span className="text-gray-700">›</span>}
+                </span>
+              ))}
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className={`w-1.5 h-1.5 rounded-full ${isRunning ? 'bg-emerald-400 animate-pulse' : 'bg-gray-600'}`} />
+              <span className="text-[10px] text-gray-500">{isRunning ? 'Running…' : 'Idle'}</span>
+            </div>
           </div>
         </div>
       </header>
 
-      {/* ── BODY ───────────────────────────────────────────────────────── */}
-      <div className="max-w-7xl mx-auto px-6 py-8 grid grid-cols-1 xl:grid-cols-5 gap-8">
+      <div className="max-w-7xl mx-auto px-6 py-8">
 
-        {/* ══ LEFT — INPUT FORM ════════════════════════════════════════ */}
-        <aside className="xl:col-span-2 space-y-6">
-
-          {/* Topic */}
-          <section className="rounded-2xl bg-white/[0.03] border border-white/[0.07] p-6">
-            <label className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-3">
-              🎯 Core Topic / Concept
-            </label>
-            <textarea
-              rows={3}
-              placeholder="e.g. The Pythagorean Theorem, Newton's Laws of Motion, How DNA Replication Works…"
-              value={form.topic}
-              onChange={e => setF('topic', e.target.value)}
-              className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-600 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition"
-            />
-          </section>
-
-          {/* Audience + Style */}
-          <section className="rounded-2xl bg-white/[0.03] border border-white/[0.07] p-6 space-y-4">
-            <div>
-              <label className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-2">
-                🎓 Target Audience
-              </label>
-              <select
-                value={form.audience}
-                onChange={e => setF('audience', e.target.value)}
-                className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50 appearance-none cursor-pointer transition"
-              >
-                {AUDIENCES.map(a => <option key={a} value={a}>{a}</option>)}
-              </select>
+        {/* ════ VIEW: INPUT ════════════════════════════════════════════ */}
+        {view === 'input' && (
+          <div className="max-w-2xl mx-auto space-y-5">
+            <div className="text-center mb-8">
+              <h1 className="text-3xl font-black bg-gradient-to-r from-blue-400 to-violet-400 bg-clip-text text-transparent">
+                Create an Amharic STEM Video
+              </h1>
+              <p className="text-gray-500 text-sm mt-2">The AI will research, script, and animate your topic automatically.</p>
             </div>
-            <div>
-              <label className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-2">
-                🎭 Narrative Style
-              </label>
-              <select
-                value={form.style}
-                onChange={e => setF('style', e.target.value)}
-                className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50 appearance-none cursor-pointer transition"
-              >
-                {STYLES.map(s => <option key={s} value={s}>{s}</option>)}
-              </select>
-            </div>
-          </section>
 
-          {/* Visual Metaphor */}
-          <section className="rounded-2xl bg-white/[0.03] border border-white/[0.07] p-6">
-            <label className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-2">
-              🖼️ Visual Metaphor <span className="text-gray-700 normal-case font-normal">(optional)</span>
-            </label>
-            <input
-              type="text"
-              placeholder="e.g. 'Use building a house as the analogy', 'Abstract geometric 3b1b style'"
-              value={form.metaphor}
-              onChange={e => setF('metaphor', e.target.value)}
-              className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition"
-            />
-          </section>
-
-          {/* Source Material (collapsible) */}
-          <section className="rounded-2xl bg-white/[0.03] border border-white/[0.07] p-6">
-            <button
-              type="button"
-              onClick={() => setShowSource(s => !s)}
-              className="flex items-center justify-between w-full text-left"
-            >
-              <label className="block text-xs font-bold text-gray-500 uppercase tracking-widest cursor-pointer">
-                📄 Source Material <span className="text-gray-700 normal-case font-normal">(optional)</span>
-              </label>
-              <span className="text-gray-600 text-xs">{showSource ? '▲' : '▼'}</span>
-            </button>
-            {showSource && (
+            <Card>
+              <Label>🎯 Topic / Concept</Label>
               <textarea
-                rows={5}
-                placeholder="Paste raw text, equations, or research notes. The AI will base the video on this."
-                value={form.sourceMaterial}
-                onChange={e => setF('sourceMaterial', e.target.value)}
-                className="mt-3 w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-xs text-gray-300 placeholder-gray-700 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition font-mono"
+                rows={3}
+                placeholder="e.g. The Pythagorean Theorem, Newton's Laws of Motion, How DNA Replication Works…"
+                value={form.topic}
+                onChange={e => setF('topic', e.target.value)}
+                className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-600 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition"
               />
-            )}
-          </section>
+            </Card>
 
-          {/* Persona */}
-          <section className="rounded-2xl bg-white/[0.03] border border-white/[0.07] p-6">
-            <label className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-4">
-              🎙️ Voice Persona
-            </label>
-            <div className="grid grid-cols-1 gap-2">
+            <div className="grid grid-cols-2 gap-4">
+              <Card>
+                <Label>🎓 Audience</Label>
+                <Select value={form.audience} onChange={e => setF('audience', e.target.value)}>
+                  {AUDIENCES.map(a => <option key={a}>{a}</option>)}
+                </Select>
+              </Card>
+              <Card>
+                <Label>🎭 Style</Label>
+                <Select value={form.style} onChange={e => setF('style', e.target.value)}>
+                  {STYLES.map(s => <option key={s}>{s}</option>)}
+                </Select>
+              </Card>
+            </div>
+
+            <Card>
+              <Label>🖼️ Visual Metaphor <span className="text-gray-700 normal-case font-normal text-[11px]">(optional)</span></Label>
+              <input
+                type="text"
+                placeholder="e.g. 'Use a building construction analogy', 'Abstract 3b1b style'"
+                value={form.metaphor}
+                onChange={e => setF('metaphor', e.target.value)}
+                className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition"
+              />
+            </Card>
+
+            <Card>
+              <button type="button" onClick={() => setShowSource(s => !s)}
+                className="flex items-center justify-between w-full text-left">
+                <Label>📄 Source Material <span className="text-gray-700 normal-case font-normal text-[11px]">(optional)</span></Label>
+                <span className="text-gray-600 text-xs">{showSource ? '▲' : '▼'}</span>
+              </button>
+              {showSource && (
+                <textarea rows={4} value={form.sourceMaterial}
+                  onChange={e => setF('sourceMaterial', e.target.value)}
+                  placeholder="Paste raw text, equations, or research notes…"
+                  className="mt-3 w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-xs text-gray-300 placeholder-gray-700 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition font-mono" />
+              )}
+            </Card>
+
+            <div className="grid grid-cols-5 gap-2">
               {PERSONAS.map(p => (
-                <button
-                  key={p.id}
-                  type="button"
-                  onClick={() => setF('personaId', p.id)}
-                  className={`flex items-center gap-3 p-3 rounded-xl border text-left transition-all ${
-                    form.personaId === p.id
-                      ? 'border-blue-500 bg-blue-500/10'
-                      : 'border-white/5 bg-black/20 hover:border-white/15'
-                  }`}
-                >
+                <button key={p.id} type="button" onClick={() => setF('personaId', p.id)}
+                  className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border transition-all ${
+                    form.personaId === p.id ? 'border-blue-500 bg-blue-500/10' : 'border-white/5 bg-black/20 hover:border-white/15'}`}>
                   <span className="text-xl">{p.icon}</span>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className={`text-sm font-bold ${form.personaId === p.id ? 'text-blue-300' : 'text-white'}`}>
-                        {p.name}
-                      </span>
-                      <span className={`text-[9px] px-1.5 py-0.5 rounded border font-bold ${BADGE_COLORS[p.color]}`}>
-                        {p.badge}
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-gray-600 truncate">{p.title}</p>
-                  </div>
-                  {form.personaId === p.id && (
-                    <span className="text-blue-400 text-xs">✓</span>
-                  )}
+                  <span className={`text-[10px] font-bold ${form.personaId === p.id ? 'text-blue-300' : 'text-gray-500'}`}>{p.name}</span>
+                  <span className={`text-[8px] px-1 py-0.5 rounded border font-bold ${BADGE[p.color]}`}>{p.badge}</span>
                 </button>
               ))}
             </div>
-          </section>
 
-          {/* Orientation */}
-          <section className="rounded-2xl bg-white/[0.03] border border-white/[0.07] p-6">
-            <label className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-4">
-              📐 Orientation
-            </label>
             <div className="grid grid-cols-2 gap-3">
               {(['landscape','portrait'] as const).map(mode => (
-                <button
-                  key={mode}
-                  type="button"
-                  onClick={() => setF('orientation', mode)}
+                <button key={mode} type="button" onClick={() => setF('orientation', mode)}
                   className={`flex flex-col items-center gap-2 py-4 rounded-xl border-2 transition-all ${
-                    form.orientation === mode
-                      ? 'border-violet-500 bg-violet-500/10 text-violet-300'
-                      : 'border-white/8 bg-black/20 text-gray-600 hover:border-white/15'
-                  }`}
-                >
-                  <div className={`border-2 rounded flex items-center justify-center ${
-                    form.orientation === mode ? 'border-violet-400' : 'border-gray-700'
-                  } ${mode === 'landscape' ? 'w-14 h-9' : 'w-9 h-14'}`} />
+                    form.orientation === mode ? 'border-violet-500 bg-violet-500/10 text-violet-300' : 'border-white/8 bg-black/20 text-gray-600 hover:border-white/15'}`}>
+                  <div className={`border-2 rounded ${form.orientation === mode ? 'border-violet-400' : 'border-gray-700'} ${mode === 'landscape' ? 'w-12 h-8' : 'w-8 h-12'}`} />
                   <span className="text-[10px] font-bold uppercase tracking-widest">{mode}</span>
-                  <span className="text-[9px] opacity-50">
-                    {mode === 'landscape' ? '1920×1080' : '1080×1920'}
-                  </span>
                 </button>
               ))}
             </div>
-          </section>
 
-          {/* Generate Button */}
-          <button
-            type="button"
-            disabled={isRunning || !form.topic.trim()}
-            onClick={handleGenerate}
-            className="w-full py-4 rounded-2xl font-black text-white uppercase tracking-widest text-sm transition-all duration-300 shadow-2xl
-              bg-gradient-to-r from-blue-600 via-violet-600 to-blue-600 bg-[length:200%_100%]
-              hover:bg-[position:100%_0] disabled:opacity-40 disabled:cursor-not-allowed
-              flex items-center justify-center gap-3"
-          >
-            {isRunning ? (
-              <>
-                <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                Generating…
-              </>
-            ) : (
-              `🤖 Generate with ${selectedPersona.icon} ${selectedPersona.name}`
-            )}
-          </button>
-        </aside>
+            <button type="button" disabled={!form.topic.trim()}
+              onClick={generateStoryboard}
+              className="w-full py-4 rounded-2xl bg-gradient-to-r from-blue-600 to-violet-600 hover:from-blue-500 hover:to-violet-500 font-black text-white text-sm uppercase tracking-widest transition-all shadow-2xl shadow-blue-500/20 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+              🤖 Generate Storyboard with {persona.icon} {persona.name}
+            </button>
+          </div>
+        )}
 
-        {/* ══ RIGHT — LIVE OUTPUT ═══════════════════════════════════════ */}
-        <section className="xl:col-span-3 space-y-4" ref={outputRef}>
+        {/* ════ VIEW: PLANNING (streaming) ═════════════════════════════ */}
+        {view === 'planning' && (
+          <div className="max-w-xl mx-auto flex flex-col items-center justify-center py-24 space-y-6 text-center">
+            <div className="w-16 h-16 rounded-full border-4 border-blue-500 border-t-transparent animate-spin" />
+            <div>
+              <p className="text-xl font-black text-white">{statusMsg}</p>
+              <p className="text-sm text-gray-500 mt-2">Qwen is researching and writing your Amharic script…</p>
+            </div>
+            <div className="flex flex-col gap-2 text-sm text-gray-600 font-mono">
+              <span>Researcher → Scriptwriter → Storyboard</span>
+            </div>
+          </div>
+        )}
 
-          {/* Phase Banner */}
-          {phase !== 'idle' && (
-            <PhaseBanner phase={phase} healAttempt={healAttempt} />
-          )}
-
-          {/* Researcher Output */}
-          {steps.length > 0 && (
-            <OutputCard icon="🔬" title="Learning Journey" color="blue">
-              <div className="space-y-3">
-                {steps.map((s, i) => (
-                  <div key={i} className="flex gap-3 p-3 rounded-xl bg-black/30 border border-white/5">
-                    <div className="w-6 h-6 rounded-full bg-blue-600 text-white text-xs font-black flex items-center justify-center flex-shrink-0 mt-0.5">
-                      {i + 1}
-                    </div>
-                    <div>
-                      <p className="text-sm font-bold text-blue-300">{s.concept || s.scene_name}</p>
-                      <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{s.explanation}</p>
-                      {s.visual && (
-                        <p className="text-[11px] text-violet-400 mt-1 italic">📹 {s.visual}</p>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </OutputCard>
-          )}
-
-          {/* Scriptwriter Output */}
-          {scenes.length > 0 && (
-            <OutputCard icon="✍️" title="Amharic Script" color="emerald">
-              <div className="space-y-3">
-                {scenes.map((s, i) => (
-                  <div key={i} className="p-4 rounded-xl bg-black/30 border border-white/5">
-                    <p className="text-[10px] font-bold text-gray-600 uppercase tracking-widest mb-2">
-                      {s.scene_name}
-                    </p>
-                    <p className="text-base text-emerald-200 leading-relaxed" style={{ fontFamily: "'Nyala', serif" }}>
-                      {s.amharic_script || '…'}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            </OutputCard>
-          )}
-
-          {/* Manim Coder Output */}
-          {codeCount > 0 && (
-            <OutputCard icon="⚙️" title={`Manim Code Generated`} color="violet">
-              <div className="flex items-center gap-3 p-4 bg-black/30 rounded-xl border border-white/5">
-                <span className="text-3xl">🐍</span>
-                <div>
-                  <p className="text-sm font-bold text-violet-300">{codeCount} VoiceoverScene class{codeCount > 1 ? 'es' : ''}</p>
-                  <p className="text-xs text-gray-500">With LocalMMSService + tracker.duration sync</p>
-                </div>
-              </div>
-            </OutputCard>
-          )}
-
-          {/* Self-Healing */}
-          {phase === 'healing' && (
-            <OutputCard icon="🔧" title="Self-Healing Critic" color="yellow">
-              <div className="p-4 bg-yellow-950/30 rounded-xl border border-yellow-500/20">
-                <p className="text-sm text-yellow-400 font-bold">Attempt {healAttempt}/3</p>
-                <p className="text-xs text-gray-500 mt-1">
-                  Manim traceback detected. The AI is reading the error and rewriting the code…
-                </p>
-                <div className="flex items-center gap-2 mt-3">
-                  {[0,1,2].map(i => (
-                    <div
-                      key={i}
-                      className={`h-1.5 flex-1 rounded-full transition-all ${
-                        i < healAttempt ? 'bg-yellow-400' : 'bg-white/10'
-                      }`}
-                    />
-                  ))}
-                </div>
-              </div>
-            </OutputCard>
-          )}
-
-          {/* Preview Ready */}
-          {(phase === 'preview_ready' || phase === 'complete') && (
-            <OutputCard icon="🎬" title="Preview Ready" color="emerald">
-              <div className="space-y-4">
-                <div className="p-4 bg-emerald-950/30 rounded-xl border border-emerald-500/20">
-                  <p className="text-sm font-bold text-emerald-300">✅ Low-quality preview rendered!</p>
-                  {previewPath && (
-                    <p className="text-[11px] text-gray-600 font-mono mt-2 break-all">{previewPath}</p>
-                  )}
-                </div>
-
-                {outputFolder && (
-                  <button
-                    type="button"
-                    onClick={handleFinalRender}
-                    className="w-full py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 font-bold text-white text-sm transition-all shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2"
-                  >
-                    🚀 Render Final 4K Video
-                  </button>
-                )}
-              </div>
-            </OutputCard>
-          )}
-
-          {/* Final Complete */}
-          {phase === 'complete' && outputFolder && (
-            <OutputCard icon="🏆" title="Production Complete" color="blue">
-              <div className="p-4 bg-blue-950/30 rounded-xl border border-blue-500/20">
-                <p className="text-sm font-bold text-blue-300">Your video is ready!</p>
-                <p className="text-[11px] font-mono text-gray-500 mt-2 break-all">{outputFolder}</p>
-              </div>
-            </OutputCard>
-          )}
-
-          {/* Error */}
-          {phase === 'error' && (
-            <OutputCard icon="❌" title="Error" color="red">
-              <div className="p-4 bg-red-950/30 rounded-xl border border-red-500/20">
-                <p className="text-xs text-red-400 font-mono whitespace-pre-wrap">{errorMsg}</p>
-                <p className="text-[11px] text-gray-600 mt-3">
-                  Make sure the orchestrator is running: <code className="text-blue-400">./run_all.sh</code>
-                </p>
-              </div>
-            </OutputCard>
-          )}
-
-          {/* Idle state */}
-          {phase === 'idle' && (
-            <div className="flex flex-col items-center justify-center py-24 text-center text-gray-700 space-y-4">
-              <div className="text-6xl opacity-20">🎬</div>
+        {/* ════ VIEW: STORYBOARD (editable cards) ══════════════════════ */}
+        {view === 'storyboard' && (
+          <div className="space-y-6">
+            {/* Header bar */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-white/5">
               <div>
-                <p className="font-bold text-gray-500">AI Studio is ready</p>
-                <p className="text-sm mt-1">Enter a topic and click Generate to begin.</p>
-                <p className="text-xs mt-3 font-mono text-gray-700">
-                  TTS :8100 • Orchestrator :8200 • Frontend :3011
+                <h2 className="text-xl font-black text-white">📋 Storyboard Review</h2>
+                <p className="text-sm text-gray-500 mt-1">
+                  Review and edit the AI-generated script before rendering. Click any field to modify it.
                 </p>
+              </div>
+              <div className="flex gap-3">
+                <button onClick={() => setView('input')}
+                  className="px-5 py-2.5 rounded-xl border border-white/10 text-sm text-gray-400 hover:border-white/20 transition">
+                  ← Back
+                </button>
+                <button onClick={approveAndRender}
+                  className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 font-bold text-white text-sm transition-all shadow-lg shadow-emerald-500/20 flex items-center gap-2">
+                  ✅ Approve &amp; Render {persona.icon}
+                </button>
               </div>
             </div>
-          )}
-        </section>
+
+            {/* Scene cards */}
+            <div className="space-y-5">
+              {scenes.map((scene, idx) => (
+                <div key={scene.scene_name}
+                  className="rounded-2xl border border-white/[0.07] overflow-hidden"
+                  style={{ animation: `fadeSlideIn 0.3s ease-out ${idx * 0.05}s both` }}>
+
+                  {/* Card header */}
+                  <div className="px-6 py-4 flex items-center gap-4"
+                    style={{ background: `${SCENE_COLORS[idx % SCENE_COLORS.length]}22`, borderBottom: `1px solid ${SCENE_COLORS[idx % SCENE_COLORS.length]}33` }}>
+                    <div className="w-8 h-8 rounded-full flex items-center justify-center font-black text-sm text-white flex-shrink-0"
+                      style={{ background: SCENE_COLORS[idx % SCENE_COLORS.length] }}>
+                      {idx + 1}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs text-gray-500 uppercase tracking-widest">{scene.scene_name}</p>
+                      <p className="font-bold text-white truncate">{scene.concept}</p>
+                    </div>
+                    <span className="text-[10px] text-gray-600 hidden sm:block">{scene.explanation?.slice(0, 80)}…</span>
+                  </div>
+
+                  {/* Editable fields */}
+                  <div className="p-6 grid grid-cols-1 lg:grid-cols-2 gap-6 bg-white/[0.01]">
+
+                    {/* Amharic Script */}
+                    <div>
+                      <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2">
+                        ✍️ Amharic Script <span className="text-blue-500">(editable)</span>
+                      </label>
+                      <textarea
+                        rows={5}
+                        value={scene.amharic_script}
+                        onChange={e => updateScene(idx, 'amharic_script', e.target.value)}
+                        className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-base text-emerald-200 placeholder-gray-700 resize-none focus:outline-none focus:ring-2 focus:ring-emerald-500/40 transition leading-relaxed"
+                        style={{ fontFamily: "'Nyala', serif", fontSize: '16px' }}
+                      />
+                    </div>
+
+                    {/* Visual Plan */}
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2">
+                          📹 Visual Plan <span className="text-blue-500">(editable)</span>
+                        </label>
+                        <textarea
+                          rows={3}
+                          value={scene.visual}
+                          onChange={e => updateScene(idx, 'visual', e.target.value)}
+                          className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-violet-300 placeholder-gray-700 resize-none focus:outline-none focus:ring-2 focus:ring-violet-500/40 transition"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2">
+                          🧮 LaTeX Formulas <span className="text-gray-700 font-normal">(comma-separated)</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={scene.latex_formulas?.join(', ') || ''}
+                          onChange={e => updateLatex(idx, e.target.value)}
+                          placeholder="e.g. F = ma, E = mc^2"
+                          className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm font-mono text-yellow-300 placeholder-gray-700 focus:outline-none focus:ring-2 focus:ring-yellow-500/40 transition"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Bottom approve */}
+            <div className="sticky bottom-6 pt-4">
+              <div className="max-w-md mx-auto bg-[#0B0E14]/90 backdrop-blur-md rounded-2xl border border-white/10 p-4 flex items-center gap-4">
+                <div className="flex-1">
+                  <p className="text-sm font-bold text-white">{scenes.length} scenes ready</p>
+                  <p className="text-[11px] text-gray-500">Review complete? Approve to start rendering.</p>
+                </div>
+                <button onClick={approveAndRender}
+                  className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 font-bold text-white text-sm transition-all shadow-lg shadow-emerald-500/20 whitespace-nowrap flex items-center gap-2">
+                  ✅ Approve &amp; Render
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ════ VIEW: RENDERING ════════════════════════════════════════ */}
+        {(view === 'rendering' || view === 'preview_ready' || view === 'complete') && (
+          <div className="max-w-2xl mx-auto space-y-4">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-lg font-black text-white">🎬 Rendering Pipeline</h2>
+              {view !== 'rendering' && (
+                <button onClick={() => setView('storyboard')}
+                  className="text-xs text-gray-500 hover:text-gray-300 transition">
+                  ← Edit Storyboard
+                </button>
+              )}
+            </div>
+
+            {/* Event log */}
+            <div className="space-y-3">
+              {renderEvents.map((ev, i) => (
+                <RenderEventCard key={i} ev={ev} />
+              ))}
+            </div>
+
+            {/* Visual feedback card */}
+            {visualFeedback && (
+              <div className="rounded-2xl border border-yellow-500/20 bg-yellow-950/20 p-5">
+                <p className="text-sm font-bold text-yellow-400 mb-2">🖼️ Visual Critique Feedback</p>
+                <pre className="text-xs text-yellow-200/80 whitespace-pre-wrap font-mono leading-relaxed">{visualFeedback}</pre>
+                <p className="text-[11px] text-gray-600 mt-2">Manim Coder is applying these spatial corrections…</p>
+              </div>
+            )}
+
+            {/* Preview ready */}
+            {(view === 'preview_ready' || view === 'complete') && (
+              <div className="rounded-2xl border border-emerald-500/20 bg-emerald-950/20 p-6 space-y-4">
+                <p className="font-bold text-emerald-300">✅ Preview rendered successfully!</p>
+                {previewPath && (
+                  <p className="text-[11px] text-gray-600 font-mono break-all">{previewPath}</p>
+                )}
+                <button onClick={renderFinal}
+                  className="w-full py-3 rounded-xl bg-gradient-to-r from-blue-600 to-violet-600 hover:from-blue-500 hover:to-violet-500 font-bold text-white text-sm transition-all shadow-lg shadow-blue-500/20 flex items-center justify-center gap-2">
+                  🚀 Render Final 4K Video
+                </button>
+              </div>
+            )}
+
+            {/* Complete */}
+            {view === 'complete' && outputFolder && (
+              <div className="rounded-2xl border border-blue-500/20 bg-blue-950/20 p-5">
+                <p className="font-bold text-blue-300">🏆 Production complete!</p>
+                <p className="text-[11px] font-mono text-gray-600 mt-2 break-all">{outputFolder}</p>
+              </div>
+            )}
+
+            {/* Running spinner */}
+            {view === 'rendering' && (
+              <div className="flex items-center gap-3 py-4 text-gray-500">
+                <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                <span className="text-sm">Pipeline running… {healAttempt > 0 && `(self-healing attempt ${healAttempt}/3)`}</span>
+              </div>
+            )}
+
+            <div ref={bottomRef} />
+          </div>
+        )}
+
+        {/* ════ VIEW: ERROR ════════════════════════════════════════════ */}
+        {view === 'error' && (
+          <div className="max-w-xl mx-auto py-16 space-y-6">
+            <div className="rounded-2xl border border-red-500/20 bg-red-950/20 p-6">
+              <p className="font-bold text-red-400 mb-3">❌ Error</p>
+              <pre className="text-xs text-red-300/80 font-mono whitespace-pre-wrap">{errorMsg}</pre>
+              <p className="text-[11px] text-gray-600 mt-4">
+                Ensure the orchestrator is running: <code className="text-blue-400">./run_all.sh</code>
+              </p>
+            </div>
+            <button onClick={() => setView('input')}
+              className="w-full py-3 rounded-xl border border-white/10 text-gray-400 hover:border-white/20 text-sm transition">
+              ← Start Over
+            </button>
+          </div>
+        )}
       </div>
+
+      <style>{`
+        @keyframes fadeSlideIn {
+          from { opacity: 0; transform: translateY(10px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+      `}</style>
     </main>
   );
 }
 
-// ── Sub-Components ─────────────────────────────────────────────────────────
+// ── Sub-components ─────────────────────────────────────────────────────────
 
-function PhaseBanner({ phase, healAttempt }: { phase: Phase; healAttempt: number }) {
-  const configs: Record<Phase, { icon: string; label: string; color: string }> = {
-    idle:          { icon: '○',  label: 'Idle',                          color: 'gray'    },
-    researching:   { icon: '🔬', label: 'Researcher analyzing topic…',   color: 'blue'    },
-    scripting:     { icon: '✍️', label: 'Writing Amharic script…',       color: 'emerald' },
-    coding:        { icon: '⚙️', label: 'Manim Developer coding…',       color: 'violet'  },
-    rendering:     { icon: '🎞️', label: 'Rendering preview…',            color: 'blue'    },
-    healing:       { icon: '🔧', label: `Self-healing attempt ${healAttempt}/3…`, color: 'yellow' },
-    preview_ready: { icon: '🎬', label: 'Preview ready!',                color: 'emerald' },
-    complete:      { icon: '✅', label: 'Production complete!',           color: 'emerald' },
-    error:         { icon: '❌', label: 'Error occurred',                 color: 'red'     },
-  };
-
-  const c = configs[phase];
-  const colorMap: Record<string, string> = {
-    blue:    'border-blue-500/30 bg-blue-950/30 text-blue-300',
-    emerald: 'border-emerald-500/30 bg-emerald-950/30 text-emerald-300',
-    violet:  'border-violet-500/30 bg-violet-950/30 text-violet-300',
-    yellow:  'border-yellow-500/30 bg-yellow-950/30 text-yellow-300',
-    red:     'border-red-500/30 bg-red-950/30 text-red-300',
-    gray:    'border-white/10 bg-white/5 text-gray-400',
-  };
-
-  const isRunning = ['researching','scripting','coding','rendering','healing'].includes(phase);
-
+function Card({ children }: { children: React.ReactNode }) {
   return (
-    <div className={`flex items-center gap-3 px-5 py-3 rounded-2xl border ${colorMap[c.color]}`}>
-      {isRunning
-        ? <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
-        : <span>{c.icon}</span>
-      }
-      <span className="text-sm font-semibold">{c.label}</span>
+    <div className="rounded-2xl bg-white/[0.03] border border-white/[0.07] p-5 space-y-3">
+      {children}
     </div>
   );
 }
 
-function OutputCard({
-  icon, title, color, children,
-}: {
-  icon: string;
-  title: string;
-  color: 'blue' | 'emerald' | 'violet' | 'yellow' | 'red';
+function Label({ children }: { children: React.ReactNode }) {
+  return (
+    <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest">
+      {children}
+    </label>
+  );
+}
+
+function Select({ value, onChange, children }: {
+  value: string;
+  onChange: (e: React.ChangeEvent<HTMLSelectElement>) => void;
   children: React.ReactNode;
 }) {
-  const borders: Record<string, string> = {
-    blue:    'border-blue-500/20',
-    emerald: 'border-emerald-500/20',
-    violet:  'border-violet-500/20',
-    yellow:  'border-yellow-500/20',
-    red:     'border-red-500/20',
+  return (
+    <select value={value} onChange={onChange}
+      className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50 appearance-none cursor-pointer transition">
+      {children}
+    </select>
+  );
+}
+
+function RenderEventCard({ ev }: { ev: StreamEvent }) {
+  const configs: Record<string, { icon: string; color: string; label: string }> = {
+    status:          { icon: '○',  color: 'text-gray-400',   label: '' },
+    code_done:       { icon: '⚙️', color: 'text-violet-400', label: 'Manim Code' },
+    self_healing:    { icon: '🔧', color: 'text-yellow-400', label: 'Self-Healing' },
+    visual_critique: { icon: '🖼️', color: 'text-orange-400', label: 'Visual Check' },
+    preview_ready:   { icon: '🎬', color: 'text-emerald-400',label: 'Preview Ready' },
+    complete:        { icon: '✅', color: 'text-emerald-400', label: 'Complete' },
+    error:           { icon: '❌', color: 'text-red-400',     label: 'Error' },
   };
-  const headers: Record<string, string> = {
-    blue:    'text-blue-400',
-    emerald: 'text-emerald-400',
-    violet:  'text-violet-400',
-    yellow:  'text-yellow-400',
-    red:     'text-red-400',
-  };
+  const c = configs[ev.type] || { icon: '·', color: 'text-gray-600', label: '' };
+  const msg = (ev.payload.message as string) || ev.type;
 
   return (
-    <div className={`rounded-2xl bg-white/[0.02] border ${borders[color]} overflow-hidden`}
-         style={{ animation: 'fadeSlideIn 0.3s ease-out' }}>
-      <div className="px-5 py-4 border-b border-white/5">
-        <h3 className={`text-sm font-bold ${headers[color]} flex items-center gap-2`}>
-          <span>{icon}</span> {title}
-        </h3>
-      </div>
-      <div className="p-5">{children}</div>
-      <style>{`
-        @keyframes fadeSlideIn {
-          from { opacity: 0; transform: translateY(8px); }
-          to   { opacity: 1; transform: translateY(0); }
-        }
-      `}</style>
+    <div className={`flex items-start gap-3 text-sm ${c.color}`}
+         style={{ animation: 'fadeSlideIn 0.2s ease-out' }}>
+      <span className="mt-0.5 flex-shrink-0">{c.icon}</span>
+      <span className="flex-1">{msg}</span>
     </div>
   );
 }
