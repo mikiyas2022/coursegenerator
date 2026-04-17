@@ -95,7 +95,7 @@ async def _stream_storyboard(req: StoryboardRequest) -> AsyncGenerator[str, None
 
     # Run Researcher in thread pool (blocking LLM call)
     try:
-        steps = await loop.run_in_executor(
+        task = loop.run_in_executor(
             executor,
             lambda: run_researcher(
                 topic=req.topic,
@@ -105,6 +105,13 @@ async def _stream_storyboard(req: StoryboardRequest) -> AsyncGenerator[str, None
                 source_material=req.source_material,
             ),
         )
+        while not task.done():
+            yield _sse("ping", {"message": "still researching..."})
+            try:
+                await asyncio.wait_for(asyncio.shield(task), timeout=10.0)
+            except asyncio.TimeoutError:
+                pass
+        steps = task.result()
     except Exception as exc:
         yield _sse("error", {"message": f"Researcher failed: {exc}"})
         return
@@ -115,12 +122,19 @@ async def _stream_storyboard(req: StoryboardRequest) -> AsyncGenerator[str, None
     })
     yield _sse("status", {"message": "✍️ Writing Amharic script…", "phase": "scriptwriter"})
 
-    # Run Scriptwriter in thread pool
+    # Run Scriptwriter in thread pool with keep-alive pings
     try:
-        scenes = await loop.run_in_executor(
+        task = loop.run_in_executor(
             executor,
             lambda: run_scriptwriter(scenes=steps, style=req.style),
         )
+        while not task.done():
+            yield _sse("ping", {"message": "still writing..."})
+            try:
+                await asyncio.wait_for(asyncio.shield(task), timeout=10.0)
+            except asyncio.TimeoutError:
+                pass
+        scenes = task.result()
     except Exception as exc:
         yield _sse("error", {"message": f"Scriptwriter failed: {exc}"})
         return
@@ -147,13 +161,20 @@ async def _stream_render(req: RenderScenesRequest) -> AsyncGenerator[str, None]:
 
     # Initial code generation
     try:
-        code_classes = await loop.run_in_executor(
+        task = loop.run_in_executor(
             executor,
             lambda: run_manim_coder(
                 scenes=req.scenes,
                 persona_id=req.persona_id,
             ),
         )
+        while not task.done():
+            yield _sse("ping", {"message": "still coding..."})
+            try:
+                await asyncio.wait_for(asyncio.shield(task), timeout=10.0)
+            except asyncio.TimeoutError:
+                pass
+        code_classes = task.result()
     except Exception as exc:
         yield _sse("error", {"message": f"Manim Coder failed: {exc}"})
         return
@@ -173,7 +194,7 @@ async def _stream_render(req: RenderScenesRequest) -> AsyncGenerator[str, None]:
             "phase": "rendering",
         })
 
-        result = await loop.run_in_executor(
+        task = loop.run_in_executor(
             executor,
             lambda cc=code_classes, r=retry_count: run_critic(
                 code_classes=cc,
@@ -181,6 +202,13 @@ async def _stream_render(req: RenderScenesRequest) -> AsyncGenerator[str, None]:
                 retry_count=r,
             ),
         )
+        while not task.done():
+            yield _sse("ping", {"message": "still rendering preview..."})
+            try:
+                await asyncio.wait_for(asyncio.shield(task), timeout=10.0)
+            except asyncio.TimeoutError:
+                pass
+        result = task.result()
 
         # ── Visual self-healing ───────────────────────────────────────────
         if result.get("visual_error"):
@@ -201,7 +229,7 @@ async def _stream_render(req: RenderScenesRequest) -> AsyncGenerator[str, None]:
                 })
                 break
             # Ask manim_coder to rewrite code with visual corrections
-            code_classes = await loop.run_in_executor(
+            task = loop.run_in_executor(
                 executor,
                 lambda cc=code_classes, fb=feedback: run_manim_coder(
                     scenes=req.scenes,
@@ -210,6 +238,13 @@ async def _stream_render(req: RenderScenesRequest) -> AsyncGenerator[str, None]:
                     previous_code=cc,
                 ),
             )
+            while not task.done():
+                yield _sse("ping", {"message": "still applying visual feedback..."})
+                try:
+                    await asyncio.wait_for(asyncio.shield(task), timeout=10.0)
+                except asyncio.TimeoutError:
+                    pass
+            code_classes = task.result()
             continue
 
         # ── Syntax self-healing ───────────────────────────────────────────
@@ -227,7 +262,7 @@ async def _stream_render(req: RenderScenesRequest) -> AsyncGenerator[str, None]:
                     "message": f"Max retries reached. Last error:\n{error[:500]}"
                 })
                 return
-            code_classes = await loop.run_in_executor(
+            task = loop.run_in_executor(
                 executor,
                 lambda cc=code_classes, e=error: run_manim_coder(
                     scenes=req.scenes,
@@ -236,6 +271,13 @@ async def _stream_render(req: RenderScenesRequest) -> AsyncGenerator[str, None]:
                     previous_code=cc,
                 ),
             )
+            while not task.done():
+                yield _sse("ping", {"message": "still fixing syntax error..."})
+                try:
+                    await asyncio.wait_for(asyncio.shield(task), timeout=10.0)
+                except asyncio.TimeoutError:
+                    pass
+            code_classes = task.result()
             continue
 
         # ── SUCCESS ───────────────────────────────────────────────────────
@@ -384,6 +426,10 @@ async def create_video(req: CreateJobRequest):
 def health():
     return {"status": "ok", "service": "orchestrator", "port": ORCHESTRATOR_PORT, "version": "2.0.0"}
 
+@app.get("/exit")
+def force_exit():
+    import os
+    os._exit(0)
 
 if __name__ == "__main__":
     import uvicorn

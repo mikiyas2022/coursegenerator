@@ -42,7 +42,8 @@ def _build_env() -> dict:
 
 
 def _extract_scene_names(code: str) -> list[str]:
-    return re.findall(r"^class\s+(\w+)\s*\(", code, re.MULTILINE)
+    # Match any child class defining a Scene to prevent picking up LocalMMSService(SpeechService)
+    return re.findall(r"^class\s+(\w+)\s*\([^)]*Scene[^)]*\):", code, re.MULTILINE)
 
 
 def _find_file(output_folder: str, scene_name: str, ext: str) -> str | None:
@@ -80,8 +81,8 @@ def _run_syntax_check(
 
     combined = (result.stdout or "") + (result.stderr or "")
     if result.returncode != 0:
-        tb = _extract_traceback(combined) or combined[-2000:]
-        print(f"  [critic-syntax] FAIL:\n{tb[:400]}", flush=True)
+        tb = _extract_traceback(combined) or combined[-3000:]
+        print(f"  [critic-syntax] FAIL:\n...{tb[-800:]}", flush=True)
         return {"ok": False, "error": tb}
 
     video_path = _find_file(output_folder, scene_name, ".mp4")
@@ -287,5 +288,5 @@ def _extract_traceback(output: str) -> str:
             tb_start = i
             break
     if tb_start is not None:
-        return "\n".join(lines[tb_start:tb_start + 80])
+        return "\n".join(lines[tb_start:])
     return output[-1500:]

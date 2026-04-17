@@ -48,57 +48,59 @@ Schema per scene:
 
 def run_scriptwriter(scenes: list[dict], style: str) -> list[dict]:
     """
-    Write Amharic narration for each scene from the researcher's output.
-
-    Returns enriched scene dicts with 'amharic_script' and 'sentences' keys.
+    Write Amharic narration for each scene sequentially. 
+    ENFORCES extreme brevity to ensure blazing fast TTFB and generation speeds without losing logic.
     """
-    llm = get_llm(temperature=0.3)
+    # Extremely low max_tokens guarantees rapid speed and forces the model to not loop.
+    llm = get_llm(temperature=0.2, max_tokens=200)
 
-    scenes_json = json.dumps(scenes, ensure_ascii=False, indent=2)
+    enriched = []
 
-    user_prompt = f"""Write Amharic narration for each of these educational video scenes.
+    for idx, scene in enumerate(scenes):
+        scene_name = scene.get("scene_name", f"Scene_{idx+1}")
+        print(f"  [scriptwriter] Writing script for {scene_name}...", flush=True)
+
+        user_prompt = f"""Write the Amharic narration for this SINGLE educational video scene.
 Narrative Style: {style}
 
-SCENES:
-{scenes_json}
+SCENE TO NARRATE:
+{json.dumps(scene, ensure_ascii=False, indent=2)}
 
-Follow the schema exactly. Output the JSON array."""
+CRITICAL: You MUST write EXACTLY TWO very short sentences in Amharic. DO NOT write long paragraphs.
 
-    try:
-        response = llm.invoke([
-            SystemMessage(content=SYSTEM_PROMPT),
-            HumanMessage(content=user_prompt),
-        ])
-        raw = response.content.strip()
-        raw = re.sub(r"```(?:json)?", "", raw).strip().rstrip("```").strip()
+Follow the schema exactly. Output ONLY the JSON object. Do not wrap in arrays or markdown.
+Schema:
+{{
+  "scene_name": "{scene_name}",
+  "amharic_script": "Short continuous Amharic narration string.",
+  "sentences": ["Sentence 1.", "Sentence 2."]
+}}"""
 
-        scripts = json.loads(raw)
-        if not isinstance(scripts, list):
-            raise ValueError("Non-list JSON from LLM")
+        try:
+            response = llm.invoke([
+                SystemMessage(content=SYSTEM_PROMPT),
+                HumanMessage(content=user_prompt),
+            ])
+            raw = response.content.strip()
+            raw = re.sub(r"```(?:json)?", "", raw).strip().rstrip("```").strip()
 
-        # Merge script data back into the original scene dicts
-        script_map = {s["scene_name"]: s for s in scripts}
-        enriched = []
-        for scene in scenes:
-            name = scene["scene_name"]
-            script_data = script_map.get(name, {})
+            script_data = json.loads(raw)
+            if not isinstance(script_data, dict):
+                raise ValueError("LLM did not return a JSON dictionary.")
+
             enriched.append({
                 **scene,
-                "amharic_script": script_data.get("amharic_script", "ምንም ዓይነት ንግግር አልተሰጠም።"),
+                "amharic_script": script_data.get("amharic_script", "ዛሬ ትምህርት እናያለን።"),
                 "sentences":      script_data.get("sentences", []),
             })
 
-        print(f"  [scriptwriter] Scripts written for {len(enriched)} scenes.", flush=True)
-        return enriched
-
-    except Exception as exc:
-        print(f"  [scriptwriter] LLM error ({exc}). Using placeholder scripts.", flush=True)
-        # Fallback: add placeholder Amharic to each scene
-        return [
-            {
+        except Exception as exc:
+            print(f"  [scriptwriter] LLM error on {scene_name} ({exc}). Using placeholder.", flush=True)
+            enriched.append({
                 **scene,
                 "amharic_script": f"ዛሬ {scene.get('concept', 'ትምህርት')} እናያለን።",
                 "sentences":      [f"ዛሬ {scene.get('concept', 'ትምህርት')} እናያለን።"],
-            }
-            for scene in scenes
-        ]
+            })
+
+    print(f"  [scriptwriter] All {len(enriched)} scenes rapidly completed.", flush=True)
+    return enriched

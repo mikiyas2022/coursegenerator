@@ -50,7 +50,7 @@ class LocalMMSService(SpeechService):
         os.makedirs(cache_dir, exist_ok=True)
         data_hash = hashlib.sha256((text + str(self.persona_id)).encode()).hexdigest()
         if path is None:
-            path = os.path.join(cache_dir, f"{data_hash}.wav")
+            path = os.path.join(cache_dir, f"{{data_hash}}.wav")
         if not os.path.exists(path):
             resp = requests.post(
                 "http://127.0.0.1:8100/generate_audio",
@@ -209,18 +209,20 @@ def _heal_code(llm, previous_classes: list[str], error: str) -> list[str]:
     """Self-heal: ask the LLM to fix both runtime and visual errors."""
     print(f"  [manim_coder] Healing — error: {error[:200]}", flush=True)
 
-    full_code = "\n\n".join(previous_classes)
-    user_prompt = f"""The following ManimCE code produced this error. Fix ONLY the error.
+    # If the error output says which scene failed, extract it. Usually critic passes single scene tracebacks.
+    full_code_context = "\n\n".join(previous_classes)
+    
+    user_prompt = f"""The following ManimCE code produced an error. 
+Identify which class is causing the error, and rewrite ONLY that specific class to fix it.
 
 ERROR:
 {error[:1800]}
 
-CODE:
-{full_code}
+FULL SCRIPT CONTEXT:
+{full_code_context}
 
-Output the COMPLETE fixed Python code for ALL classes.
-No markdown fences. No explanations.
-REMEMBER: use theme API functions. Do NOT re-import manim."""
+Output ONLY the completely corrected Python `class ...` block for the single class that failed.
+Do not output the other classes. No markdown fences. No explanations."""
 
     try:
         response = llm.invoke([
@@ -231,13 +233,25 @@ REMEMBER: use theme API functions. Do NOT re-import manim."""
         fixed = re.sub(r"^```(?:python)?", "", fixed, flags=re.MULTILINE).strip()
         fixed = re.sub(r"```$",            "", fixed, flags=re.MULTILINE).strip()
 
-        class_blocks = re.split(r"(?=^class\s+\w+\()", fixed, flags=re.MULTILINE)
-        class_blocks = [b.strip() for b in class_blocks if b.strip().startswith("class ")]
-        if not class_blocks:
-            return [fixed]
+        # Find which class the LLM returned
+        match = re.search(r"^class\s+(\w+)\s*\(", fixed, re.MULTILINE)
+        if not match:
+            print("  [manim_coder] Healer did not return a valid class. Using original.", flush=True)
+            return previous_classes
+            
+        healed_class_name = match.group(1)
+        
+        # Substitute the healed class back into the array
+        new_classes = []
+        for code_block in previous_classes:
+            block_match = re.search(r"^class\s+(\w+)\s*\(", code_block, re.MULTILINE)
+            if block_match and block_match.group(1) == healed_class_name:
+                new_classes.append(fixed)
+            else:
+                new_classes.append(code_block)
 
-        print(f"  [manim_coder] Healed {len(class_blocks)} class(es).", flush=True)
-        return class_blocks
+        print(f"  [manim_coder] Successfully healed class: {healed_class_name}.", flush=True)
+        return new_classes
 
     except Exception as exc:
         print(f"  [manim_coder] Heal LLM error: {exc}. Returning original.", flush=True)

@@ -93,7 +93,7 @@ Break this topic into 4–6 structured scene beats. Output the JSON array."""
                 "explanation": f"We introduce the core idea of {topic} for {audience} students.",
                 "visual": "Fade in title text centred on dark background",
                 "narrative_hook": "Open with a thought-provoking question",
-                "latex_formulas": [],
+                "latex_formulas": ["F = ma", "E = mc^2"],
             },
             {
                 "scene_name": "Scene2_Core",
@@ -101,7 +101,7 @@ Break this topic into 4–6 structured scene beats. Output the JSON array."""
                 "explanation": "We explore the key mathematical or conceptual foundation.",
                 "visual": "Draw labeled diagram or formula using Write() animation",
                 "narrative_hook": "Show a real-world application",
-                "latex_formulas": [],
+                "latex_formulas": ["A^2 + B^2 = C^2"],
             },
             {
                 "scene_name": "Scene3_Summary",
@@ -109,6 +109,6 @@ Break this topic into 4–6 structured scene beats. Output the JSON array."""
                 "explanation": "We recap the key points and leave students with a clear mental model.",
                 "visual": "Fade in a summary bullet list",
                 "narrative_hook": "Challenge students to apply this to a new problem",
-                "latex_formulas": [],
+                "latex_formulas": ["\\sum_i F_i = 0"],
             },
         ]

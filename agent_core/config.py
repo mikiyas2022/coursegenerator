@@ -14,8 +14,8 @@ from langchain_openai import ChatOpenAI
 
 # ── Local LLM endpoint (Ollama) ───────────────────────────────────────────────
 LOCAL_BASE_URL = os.getenv("LOCAL_BASE_URL", "http://localhost:11434/v1")
-LLM_MODEL_NAME = os.getenv("LLM_MODEL_NAME", "qwen3-coder:30b")
-VL_MODEL_NAME  = os.getenv("VL_MODEL_NAME",  "qwen2.5-vl:7b")   # vision critic
+LLM_MODEL_NAME = os.getenv("LLM_MODEL_NAME", "qwen3:8b")
+VL_MODEL_NAME  = os.getenv("VL_MODEL_NAME",  "qwen3-vl:8b")   # vision critic
 
 # ── TTS Server ────────────────────────────────────────────────────────────────
 TTS_SERVER_URL    = os.getenv("TTS_SERVER_URL", "http://127.0.0.1:8100")
@@ -47,6 +47,8 @@ def get_llm(temperature: float = 0.2, max_tokens: int = 4096) -> ChatOpenAI:
         api_key="local-execution-does-not-need-a-key",
         temperature=temperature,
         max_tokens=max_tokens,
+        request_timeout=900,
+        max_retries=0,
     )
 
 
