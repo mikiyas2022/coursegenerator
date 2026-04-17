@@ -47,7 +47,7 @@ def get_llm(temperature: float = 0.2, max_tokens: int = 4096) -> ChatOpenAI:
         api_key="local-execution-does-not-need-a-key",
         temperature=temperature,
         max_tokens=max_tokens,
-        request_timeout=900,
+        timeout=900,
         max_retries=0,
     )
 

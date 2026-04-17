@@ -228,3 +228,58 @@ def clamp_to_screen(mob: "Mobject", margin: float = 0.3) -> "Mobject":
         mob.move_to([new_x, new_y, 0])
 
     return mob
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Objective 2: Base Class Inheritance
+# ─────────────────────────────────────────────────────────────────────────────
+
+import hashlib
+import requests
+import os
+from manim_voiceover import VoiceoverScene
+from manim_voiceover.services.base import SpeechService
+
+class LocalMMSService(SpeechService):
+    """Routes manim-voiceover TTS calls to the local Meta MMS server."""
+    def __init__(self, persona_id: int = 1, **kwargs):
+        self.persona_id = persona_id
+        super().__init__(**kwargs)
+
+    def generate_from_text(self, text: str, cache_dir=None, path=None, **kwargs) -> dict:
+        if cache_dir is None:
+            cache_dir = self.cache_dir or "/tmp/stem_tts_output"
+        os.makedirs(cache_dir, exist_ok=True)
+        data_hash = hashlib.sha256((text + str(self.persona_id)).encode()).hexdigest()
+        if path is None:
+            path = os.path.join(cache_dir, f"{data_hash}.wav")
+        if not os.path.exists(path):
+            resp = requests.post(
+                "http://127.0.0.1:8100/generate_audio",
+                json={"text": text, "persona_id": self.persona_id, "output_path": path},
+                timeout=180,
+            )
+            resp.raise_for_status()
+            path = resp.json().get("output_path", path)
+        return {"original_audio": path}
+
+
+class AmharicEduScene(VoiceoverScene):
+    """
+    Standard Base Class for all generated Manim Scenes.
+    Handles Voiceover setup, styling, and text helpers automatically.
+    """
+    def setup(self):
+        """Pre-configure the 3Blue1Brown background and local Amharic TTS."""
+        super().setup()
+        setup_scene(self)
+        
+        # Read from environment to keep LLM code perfectly clean
+        p_id = int(os.environ.get("PERSONA_ID", "1"))
+        self.set_speech_service(LocalMMSService(persona_id=p_id))
+
+    def show_text(self, text: str, position=ORIGIN, font_size=FONT_SIZE_BODY, color=TEXT_COLOR):
+        """Helper to instantly draw Amharic text without boilerplate."""
+        mob = amharic_text(text, font_size=font_size, color=color).move_to(position)
+        clamp_to_screen(mob)
+        return mob

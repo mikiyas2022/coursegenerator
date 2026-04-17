@@ -32,7 +32,10 @@ from config import MAX_CRITIC_RETRIES, ORCHESTRATOR_PORT
 from agents.researcher   import run_researcher
 from agents.scriptwriter import run_scriptwriter
 from agents.manim_coder  import run_manim_coder
-from agents.critic       import run_critic, run_final_render
+from agents.critic       import run_critic
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+from video_compiler.compiler import run_final_render_parallel
 
 # LangGraph (used for the legacy /create endpoint)
 from langgraph.graph import StateGraph, END
@@ -120,27 +123,42 @@ async def _stream_storyboard(req: StoryboardRequest) -> AsyncGenerator[str, None
         "message": f"✅ Identified {len(steps)} learning steps",
         "steps": steps,
     })
-    yield _sse("status", {"message": "✍️ Writing Amharic script…", "phase": "scriptwriter"})
+    yield _sse("status", {"message": "✍️ Writing Amharic scripts...", "phase": "scriptwriter"})
 
-    # Run Scriptwriter in thread pool with keep-alive pings
-    try:
-        task = loop.run_in_executor(
-            executor,
-            lambda: run_scriptwriter(scenes=steps, style=req.style),
-        )
-        while not task.done():
-            yield _sse("ping", {"message": "still writing..."})
-            try:
-                await asyncio.wait_for(asyncio.shield(task), timeout=10.0)
-            except asyncio.TimeoutError:
-                pass
-        scenes = task.result()
-    except Exception as exc:
-        yield _sse("error", {"message": f"Scriptwriter failed: {exc}"})
-        return
+    scenes = []
+    # Process scenes sequentially but break them down to ping UI step-by-step
+    for i, step in enumerate(steps):
+        scene_name = step.get("scene_name", f"Scene_{i+1}")
+        
+        # Stream explicit, granular progress to the UI!
+        yield _sse("ping", {"message": f"LLM is writing Amharic dialogue for Scene {i+1}/{len(steps)}: {scene_name}..."})
+        
+        try:
+            task = loop.run_in_executor(
+                executor,
+                lambda step=step: run_scriptwriter(scenes=[step], style=req.style),
+            )
+            while not task.done():
+                yield _sse("ping", {"message": f"Still generating {scene_name}..."})
+                try:
+                    await asyncio.wait_for(asyncio.shield(task), timeout=6.0)
+                except asyncio.TimeoutError:
+                    pass
+            
+            result = task.result()
+            # run_scriptwriter always returns a list. Since we gave it 1, it returns 1.
+            if result and isinstance(result, list):
+                scenes.append(result[0])
+            else:
+                scenes.append(step) # fallback
+                
+        except Exception as exc:
+            yield _sse("error", {"message": f"Scriptwriter failed on {scene_name}: {exc}"})
+            # Attempt to salvage the step by continuing
+            scenes.append(step)
 
     yield _sse("storyboard_ready", {
-        "message": f"✅ Storyboard ready — {len(scenes)} scenes",
+        "message": f"✅ Storyboard ready — {len(scenes)} scenes completed",
         "scenes": scenes,
     })
 
@@ -149,144 +167,81 @@ async def _stream_storyboard(req: StoryboardRequest) -> AsyncGenerator[str, None
 # Phase 2 — Render stream (Manim Coder + Critic loop)
 # ─────────────────────────────────────────────────────────────────────────────
 
+async def _process_single_scene_pipeline(scene: dict, output_folder: str, persona_id: int):
+    """Worker task that handles Code Gen + Critic Auto-Healing for ONE independently rendered scene."""
+    loop = asyncio.get_event_loop()
+    
+    # 1. Initial Generation
+    code_class = await loop.run_in_executor(
+        executor, lambda: run_manim_coder(scenes=[scene], persona_id=persona_id)
+    )
+    
+    # 2. Hybrid Critic Auto-Healing Loop
+    retry_count = 0
+    visual_retry = 0
+    while True:
+        result = await loop.run_in_executor(
+            executor, lambda: run_critic(code_classes=code_class, output_folder=output_folder, retry_count=retry_count)
+        )
+        
+        # Determine Error Needs Action
+        vis_err = result.get("visual_error")
+        syn_err = not result.get("success", True)
+        
+        if not vis_err and not syn_err:
+            return {"success": True, "code": code_class[0], "result": result}
+            
+        if vis_err:
+            visual_retry += 1
+            if visual_retry >= MAX_CRITIC_RETRIES:
+                return {"success": False, "code": code_class[0], "result": result, "reason": "Max visual retries"}
+            fb = result.get("visual_feedback", "")
+            code_class = await loop.run_in_executor(
+                executor, lambda: run_manim_coder([scene], persona_id, visual_feedback=f"VISUAL CRITIQUE:\n{fb}", previous_code=code_class)
+            )
+        else:
+            retry_count += 1
+            if retry_count >= MAX_CRITIC_RETRIES:
+                return {"success": False, "code": code_class[0], "result": result, "reason": "Max syntax retries"}
+            fb = result.get("error", "")
+            code_class = await loop.run_in_executor(
+                executor, lambda: run_manim_coder([scene], persona_id, error_context=fb, previous_code=code_class)
+            )
+
 async def _stream_render(req: RenderScenesRequest) -> AsyncGenerator[str, None]:
     output_folder = req.output_folder or os.path.join(
         tempfile.gettempdir(), "stem_output", f"job_{int(time.time())}"
     )
     os.makedirs(output_folder, exist_ok=True)
 
-    loop = asyncio.get_event_loop()
+    yield _sse("status", {"message": f"⚙️ Dispatching {len(req.scenes)} parallel Manim coders…", "phase": "coding"})
 
-    yield _sse("status", {"message": "⚙️ Manim Developer generating scene code…", "phase": "coding"})
-
-    # Initial code generation
-    try:
-        task = loop.run_in_executor(
-            executor,
-            lambda: run_manim_coder(
-                scenes=req.scenes,
-                persona_id=req.persona_id,
-            ),
-        )
-        while not task.done():
-            yield _sse("ping", {"message": "still coding..."})
-            try:
-                await asyncio.wait_for(asyncio.shield(task), timeout=10.0)
-            except asyncio.TimeoutError:
-                pass
-        code_classes = task.result()
-    except Exception as exc:
-        yield _sse("error", {"message": f"Manim Coder failed: {exc}"})
-        return
-
-    yield _sse("code_done", {
-        "message": f"✅ {len(code_classes)} scene class(es) generated",
-        "classes_count": len(code_classes),
-    })
-
-    # Self-healing loop (syntax + visual)
-    retry_count   = 0
-    visual_retry  = 0
-
+    # Launch parallel tasks (one fully independent pipeline per scene)
+    tasks = [
+        asyncio.create_task(_process_single_scene_pipeline(scene, output_folder, req.persona_id))
+        for scene in req.scenes
+    ]
+    
     while True:
-        yield _sse("status", {
-            "message": f"🎞️ Critic rendering preview (attempt {retry_count+1})…",
-            "phase": "rendering",
-        })
+        done, pending = await asyncio.wait(tasks, timeout=2.0, return_when=asyncio.ALL_COMPLETED)
+        if not pending:
+            break
+        yield _sse("ping", {"message": f"Rendering ({len(done)}/{len(tasks)} scenes finished)..."})
 
-        task = loop.run_in_executor(
-            executor,
-            lambda cc=code_classes, r=retry_count: run_critic(
-                code_classes=cc,
-                output_folder=output_folder,
-                retry_count=r,
-            ),
-        )
-        while not task.done():
-            yield _sse("ping", {"message": "still rendering preview..."})
-            try:
-                await asyncio.wait_for(asyncio.shield(task), timeout=10.0)
-            except asyncio.TimeoutError:
-                pass
-        result = task.result()
-
-        # ── Visual self-healing ───────────────────────────────────────────
-        if result.get("visual_error"):
-            visual_retry += 1
-            feedback = result.get("visual_feedback", "")
-            yield _sse("visual_critique", {
-                "message":   f"🖼️ Visual issues detected (pass {visual_retry}/{MAX_CRITIC_RETRIES})",
-                "feedback":  feedback,
-                "attempt":   visual_retry,
-            })
-            if visual_retry >= MAX_CRITIC_RETRIES:
-                # Give up on visual healing, report what we have
-                yield _sse("preview_ready", {
-                    "message":       "⚠️ Preview ready (visual issues could not be auto-corrected)",
-                    "preview_path":  output_folder,
-                    "output_folder": output_folder,
-                    "warnings":      feedback,
-                })
-                break
-            # Ask manim_coder to rewrite code with visual corrections
-            task = loop.run_in_executor(
-                executor,
-                lambda cc=code_classes, fb=feedback: run_manim_coder(
-                    scenes=req.scenes,
-                    persona_id=req.persona_id,
-                    visual_feedback=f"VISUAL CRITIQUE: Apply these corrections:\n{fb}",
-                    previous_code=cc,
-                ),
-            )
-            while not task.done():
-                yield _sse("ping", {"message": "still applying visual feedback..."})
-                try:
-                    await asyncio.wait_for(asyncio.shield(task), timeout=10.0)
-                except asyncio.TimeoutError:
-                    pass
-            code_classes = task.result()
-            continue
-
-        # ── Syntax self-healing ───────────────────────────────────────────
-        if not result["success"]:
-            retry_count += 1
-            error = result.get("error", "Unknown error")
-            yield _sse("self_healing", {
-                "message":       f"🔧 Self-healing attempt {retry_count}/{MAX_CRITIC_RETRIES}…",
-                "error_snippet": error[:300],
-                "attempt":       retry_count,
-                "max_retries":   MAX_CRITIC_RETRIES,
-            })
-            if retry_count > MAX_CRITIC_RETRIES:
-                yield _sse("error", {
-                    "message": f"Max retries reached. Last error:\n{error[:500]}"
-                })
-                return
-            task = loop.run_in_executor(
-                executor,
-                lambda cc=code_classes, e=error: run_manim_coder(
-                    scenes=req.scenes,
-                    persona_id=req.persona_id,
-                    error_context=e,
-                    previous_code=cc,
-                ),
-            )
-            while not task.done():
-                yield _sse("ping", {"message": "still fixing syntax error..."})
-                try:
-                    await asyncio.wait_for(asyncio.shield(task), timeout=10.0)
-                except asyncio.TimeoutError:
-                    pass
-            code_classes = task.result()
-            continue
-
-        # ── SUCCESS ───────────────────────────────────────────────────────
+    results = [t.result() for t in tasks]
+    
+    # Check if any critically failed
+    failed = len([r for r in results if not r.get("success")])
+    if failed > 0:
         yield _sse("preview_ready", {
-            "message":       "🎬 Preview rendered successfully!",
-            "preview_path":  result.get("preview_path", output_folder),
+            "message": f"⚠️ Preview ready with {failed} auto-healing failure(s)",
             "output_folder": output_folder,
         })
-        break
+    else:
+        yield _sse("preview_ready", {
+            "message": "✅ All scenes generated and verified successfully!",
+            "output_folder": output_folder,
+        })
 
     yield _sse("complete", {
         "message":       "🚀 Done! Approve to render final 4K video.",
@@ -370,7 +325,7 @@ async def render_scenes(req: RenderScenesRequest):
 @app.post("/render_final")
 def render_final(req: FinalRenderRequest):
     """Phase 3: Trigger 4K high-quality render after user approves preview."""
-    return run_final_render(req.output_folder, req.orientation)
+    return run_final_render_parallel(req.output_folder, req.orientation)
 
 
 @app.post("/create")

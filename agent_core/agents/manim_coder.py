@@ -21,7 +21,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 # NOTE: theme.py path is substituted dynamically in critic._build_script()
 # ─────────────────────────────────────────────────────────────────────────────
 # This module only defines the TEMPLATE string used to build the real header.
-SCRIPT_HEADER_TEMPLATE = '''import os, sys, hashlib, requests
+SCRIPT_HEADER_TEMPLATE = '''import os, sys
 os.environ["PATH"] = (
     "/tmp/stem_venv/bin:/Library/TeX/texbin:"
     "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
@@ -30,36 +30,8 @@ os.environ["HF_HOME"] = "/tmp/huggingface_cache"
 
 # ── Theme & Manim ─────────────────────────────────────────────────────────────
 sys.path.insert(0, "{agent_core_path}")
-from theme import *          # BG_COLOR, ACCENT_COLOR, setup_scene, amharic_text …
+from theme import *          # AmharicEduScene, BG_COLOR, ACCENT_COLOR, ...
 from manim import *
-from manim_voiceover import VoiceoverScene
-from manim_voiceover.services.base import SpeechService
-
-
-# ── Local MMS TTS routing ─────────────────────────────────────────────────────
-class LocalMMSService(SpeechService):
-    """Routes manim-voiceover TTS calls to the local Meta MMS server."""
-
-    def __init__(self, persona_id: int = 1, **kwargs):
-        self.persona_id = persona_id
-        super().__init__(**kwargs)
-
-    def generate_from_text(self, text: str, cache_dir=None, path=None, **kwargs) -> dict:
-        if cache_dir is None:
-            cache_dir = self.cache_dir or "/tmp/stem_tts_output"
-        os.makedirs(cache_dir, exist_ok=True)
-        data_hash = hashlib.sha256((text + str(self.persona_id)).encode()).hexdigest()
-        if path is None:
-            path = os.path.join(cache_dir, f"{{data_hash}}.wav")
-        if not os.path.exists(path):
-            resp = requests.post(
-                "http://127.0.0.1:8100/generate_audio",
-                json={{"text": text, "persona_id": self.persona_id, "output_path": path}},
-                timeout=180,
-            )
-            resp.raise_for_status()
-            path = resp.json().get("output_path", path)
-        return {{"original_audio": path}}
 
 '''
 
@@ -71,28 +43,25 @@ MMS_SERVICE_HEADER = SCRIPT_HEADER_TEMPLATE
 # System prompt — Obj 2: enforce theme.py usage in ALL generated code
 # ─────────────────────────────────────────────────────────────────────────────
 SYSTEM_PROMPT = """You are a senior ManimCE developer generating production-ready animation code.
-The theme module is ALREADY imported (from theme import *). You MUST use it.
+The theme module is ALREADY imported. You MUST use its utilities to save time.
 
 ABSOLUTE RULES — breaking any rule causes a runtime crash:
-1. Import ONLY from `manim`. Do NOT re-import manim or theme — they are already in scope.
-2. Amharic Ge'ez text: use amharic_text("ሰላም", font_size=FONT_SIZE_BODY) — helper from theme
-   NEVER use Tex(), MathTex(), or Text() directly for Ge'ez script
-3. Latin/Math: MathTex(r"F = ma", color=FORMULA_COLOR, font_size=FONT_SIZE_MATH)
-4. Background: call setup_scene(self) as the VERY FIRST line of construct()
-   (This sets BG_COLOR, default fonts — do not set background manually)
-5. Inherit ONLY from VoiceoverScene
-6. ALWAYS call self.set_speech_service(LocalMMSService(persona_id=PERSONA_ID))
-   right after setup_scene(self)
-7. ALWAYS use tracker.duration for ALL run_time values inside voiceover blocks:
+1. Import ONLY from `manim`. Do NOT re-import manim or theme.
+2. DO NOT write setup boilerplate. You must inherit exactly from AmharicEduScene.
+   Example: `class Scene1(AmharicEduScene):`
+3. Amharic Ge'ez text: Use the built-in helper `self.show_text("ሰላም", position=UP)`.
+   NEVER use Tex(), MathTex(), or Text() directly for Ge'ez script.
+4. Latin/Math: MathTex(r"F = ma", color=FORMULA_COLOR, font_size=FONT_SIZE_MATH)
+5. ALWAYS use `self.tracker.duration` for ALL run_time values inside voiceover blocks:
      with self.voiceover(text="...Amharic...") as tracker:
          self.play(Create(obj), run_time=tracker.duration * 0.8)
          self.wait(tracker.duration * 0.2)
-8. Spatial safety: use clamp_to_screen(mob) on any Mobject placed near edges
-9. Use branded_axes() instead of raw Axes()
-10. Use branded_vector() instead of raw Arrow() for vectors
-11. Use ValueTracker + always_redraw for continuous/parametric animations
-12. Generate ONE class per scene. Name it EXACTLY as given.
-13. Output ONLY raw Python class code. NO markdown fences. NO explanations.
+6. Spatial safety: use clamp_to_screen(mob) on any Mobject placed near edges
+7. Use branded_axes() instead of raw Axes()
+8. Use branded_vector() instead of raw Arrow() for vectors
+9. Use ValueTracker + always_redraw for continuous/parametric animations
+10. Generate ONE class per scene. Name it EXACTLY as given.
+11. Output ONLY raw Python class code. NO markdown fences. NO explanations.
 
 AVAILABLE THEME API (all in scope via `from theme import *`):
   Colors: BG_COLOR, PRIMARY_COLOR, ACCENT_COLOR, FORMULA_COLOR, TEXT_COLOR,

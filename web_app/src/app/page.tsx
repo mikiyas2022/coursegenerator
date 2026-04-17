@@ -77,6 +77,7 @@ export default function StudioPage() {
   const [outputFolder,  setOutputFolder]  = useState('');
   const [errorMsg,      setErrorMsg]      = useState('');
   const [statusMsg,     setStatusMsg]     = useState('');
+  const [planningLogs,  setPlanningLogs]  = useState<{msg: string, time: string}[]>([]);
   const [healAttempt,   setHealAttempt]   = useState(0);
   const [visualFeedback,setVisualFeedback]= useState('');
   const [showSource,    setShowSource]    = useState(false);
@@ -103,6 +104,7 @@ export default function StudioPage() {
     setScenes([]);
     setErrorMsg('');
     setStatusMsg('Researcher is analyzing your topic…');
+    setPlanningLogs([{ msg: 'Researcher is analyzing your topic…', time: new Date().toLocaleTimeString() }]);
 
     try {
       const res = await fetch('/api/storyboard', {
@@ -133,8 +135,19 @@ export default function StudioPage() {
           if (!line.startsWith('data: ')) continue;
           try {
             const ev: StreamEvent = JSON.parse(line.slice(6));
+            if (ev.type === 'status' || ev.type === 'ping') {
+              if (ev.payload && (ev.payload.message as string)) {
+                const msg = ev.payload.message as string;
+                setStatusMsg(msg);
+                setPlanningLogs(prev => {
+                  // Avoid duplicate spam
+                  if (prev.length > 0 && prev[prev.length - 1].msg === msg) return prev;
+                  return [...prev, { msg, time: new Date().toLocaleTimeString() }];
+                });
+              }
+            }
             if (ev.type === 'researcher_done') {
-              setStatusMsg('Writing Amharic script…');
+              // The status event will handle this now naturally
             }
             if (ev.type === 'storyboard_ready') {
               const incoming = (ev.payload.scenes as StoryboardScene[]) || [];
@@ -380,14 +393,34 @@ export default function StudioPage() {
 
         {/* ════ VIEW: PLANNING (streaming) ═════════════════════════════ */}
         {view === 'planning' && (
-          <div className="max-w-xl mx-auto flex flex-col items-center justify-center py-24 space-y-6 text-center">
-            <div className="w-16 h-16 rounded-full border-4 border-blue-500 border-t-transparent animate-spin" />
-            <div>
-              <p className="text-xl font-black text-white">{statusMsg}</p>
-              <p className="text-sm text-gray-500 mt-2">Qwen is researching and writing your Amharic script…</p>
+          <div className="max-w-2xl mx-auto flex flex-col py-16 space-y-8">
+            <div className="flex flex-col items-center justify-center text-center space-y-4">
+              <div className="w-16 h-16 rounded-full border-4 border-blue-500 border-t-transparent animate-spin" />
+              <div>
+                <p className="text-xl font-black text-white">{statusMsg}</p>
+                <p className="text-sm text-gray-400 mt-2">Qwen is researching and writing your Amharic script…</p>
+              </div>
             </div>
-            <div className="flex flex-col gap-2 text-sm text-gray-600 font-mono">
-              <span>Researcher → Scriptwriter → Storyboard</span>
+
+            {/* Stepper / Terminal Feed */}
+            <div className="w-full bg-black/60 rounded-2xl border border-white/10 overflow-hidden shadow-2xl">
+              <div className="bg-white/5 border-b border-white/5 px-4 py-2 flex items-center justify-between">
+                <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Live Execution Log</span>
+              </div>
+              <div className="p-4 flex flex-col gap-3 max-h-[300px] overflow-y-auto">
+                {planningLogs.map((log, i) => (
+                  <div key={i} className="flex gap-4 items-start animate-fade-in">
+                    <div className="flex flex-col items-center mt-1">
+                      <div className={`w-3 h-3 rounded-full flex-shrink-0 ${i === planningLogs.length - 1 ? 'bg-blue-500 animate-pulse' : 'bg-emerald-500'}`} />
+                      {i < planningLogs.length - 1 && <div className="w-0.5 h-full bg-white/10 mt-2 mb-1" />}
+                    </div>
+                    <div className="flex-1 pb-2">
+                      <p className={`text-sm ${i === planningLogs.length - 1 ? 'text-white font-bold' : 'text-gray-400'}`}>{log.msg}</p>
+                      <p className="text-[10px] text-gray-600 font-mono mt-0.5">{log.time}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         )}

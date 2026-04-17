@@ -15,9 +15,15 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 # Use sys.path-safe absolute import when run as part of the package
 import sys, os
+os.environ["HF_HOME"] = "/tmp/huggingface_cache"
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from config import get_llm
 
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_community.vectorstores import FAISS
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 SYSTEM_PROMPT = """You are a world-class educational content designer and pedagogue.
 Your task: break a topic into a structured learning journey for video lessons.
@@ -42,6 +48,24 @@ JSON schema per scene:
   "latex_formulas": ["F = ma", "W = Fd"]
 }"""
 
+def filter_source_material(topic: str, source_material: str) -> str:
+    """Uses FAISS local RAG to extract only the 4 most relevant chunks to the topic."""
+    if not source_material or len(source_material) < 2000:
+        return source_material
+
+    print(f"  [researcher] RAG: Compressing {len(source_material)} characters of source material...", flush=True)
+    
+    # We strictly enforce local file caching. MiniLM requires zero internet since it's already in /tmp.
+    embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+    splitter   = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+    chunks     = splitter.split_text(source_material)
+    
+    vectorstore = FAISS.from_texts(chunks, embeddings)
+    best_docs   = vectorstore.similarity_search(topic, k=4)
+    compressed  = "\n\n... ".join(doc.page_content for doc in best_docs)
+    print(f"  [researcher] RAG: Compressed context to {len(compressed)} characters.", flush=True)
+    return compressed
+
 
 def run_researcher(
     topic: str,
@@ -52,17 +76,15 @@ def run_researcher(
 ) -> list[dict]:
     """
     Invoke the Researcher Agent.
-
-    Returns a list of scene dicts representing the pedagogical breakdown.
-    Falls back to a minimal hardcoded structure on LLM failure.
     """
     llm = get_llm(temperature=0.2)
+    filtered_source = filter_source_material(topic, source_material)
 
     user_prompt = f"""Topic: {topic}
 Audience Level: {audience}
 Narrative Style: {style}
 Visual Metaphor / Theme: {metaphor or "Abstract mathematical animations"}
-Source Material: {source_material[:2000] if source_material else "None provided — use your knowledge."}
+Source Material: {filtered_source if filtered_source else "None provided — use your knowledge."}
 
 Break this topic into 4–6 structured scene beats. Output the JSON array."""
 

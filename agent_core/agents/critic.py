@@ -128,11 +128,11 @@ def _run_visual_check(
     )
 
     env = _build_env()
-    # manim -s saves only the last frame (much faster than full render)
+    # manim -sql saves only the low quality last frame (much faster than full render)
     frames_dir = os.path.join(output_folder, "frames")
     os.makedirs(frames_dir, exist_ok=True)
 
-    cmd = [VENV_MANIM, "-s", "--disable_caching", "--media_dir", frames_dir,
+    cmd = [VENV_MANIM, "-sql", "--disable_caching", "--media_dir", frames_dir,
            script_path, scene_name]
 
     try:
