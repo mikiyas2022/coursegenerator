@@ -1,11 +1,9 @@
 """
 agents/critic.py — Self-Healing Critic Agent (Syntax + Visual)
 
-Two-stage validation:
-  Stage 1 — Syntax/Runtime: run Manim -ql, catch Python tracebacks
-  Stage 2 — Visual:         run Manim -s (last frame), pass PNG to VL model,
-             ask "Are text elements overlapping shapes? Is anything off-screen?"
-             Feed corrections back to Manim Coder up to MAX_VISUAL_RETRIES.
+Two-stage validation for ALL scenes (not just the first):
+  Stage 1 — Syntax/Runtime: run Manim -ql for EACH scene class, catch tracebacks
+  Stage 2 — Visual:         run Manim -s (last frame), pass PNG to VL model
 """
 
 import base64
@@ -42,8 +40,45 @@ def _build_env() -> dict:
 
 
 def _extract_scene_names(code: str) -> list[str]:
-    # Match any child class defining a Scene to prevent picking up LocalMMSService(SpeechService)
-    return re.findall(r"^class\s+(\w+)\s*\([^)]*Scene[^)]*\):", code, re.MULTILINE)
+    """Extract class names that inherit from scene-like bases."""
+    all_classes = re.findall(r"^class\s+(\w+)\s*\([^)]*\):", code, re.MULTILINE)
+    # Filter out helper classes that aren't scenes
+    skip = {"EdgeTTSService", "LocalMMSService", "AmharicEduScene"}
+    return [c for c in all_classes if c not in skip]
+
+
+def _sanitize_code(code: str) -> str:
+    """
+    Post-process LLM-generated Manim code to strip known v0.20.1-incompatible
+    kwargs before attempting to render.
+    """
+    # Strip background_line_style from Axes() — only valid in NumberPlane()
+    code = re.sub(
+        r"(Axes\s*\([^)]*?)\s*,?\s*background_line_style\s*=\s*\{[^}]*\}",
+        r"\1",
+        code, flags=re.DOTALL
+    )
+    # Strip bare trailing commas left by the substitution above
+    code = re.sub(r",\s*\)", ")", code)
+    # thickness= → stroke_width=
+    code = re.sub(r'\bthickness\s*=', 'stroke_width=', code)
+    # Arc(ORIGIN, ...) → Arc(...)
+    code = re.sub(r'Arc\s*\(\s*ORIGIN\s*,\s*', 'Arc(', code)
+    # self.wait(run_time=X) → self.wait(X)
+    code = re.sub(r'self\.wait\(run_time\s*=\s*([^)]+)\)', r'self.wait(\1)', code)
+    code = re.sub(r'self\.wait\(duration\s*=\s*([^)]+)\)', r'self.wait(\1)', code)
+    # Strip axis_config={...} from branded_axes/NumberPlane calls
+    code = re.sub(r',?\s*axis_config\s*=\s*\{[^}]*\}', '', code)
+    # Strip include_tip/include_numbers as top-level kwargs for NumberPlane
+    code = re.sub(r',?\s*include_tip\s*=\s*\w+', '', code)
+    code = re.sub(r',?\s*include_numbers\s*=\s*\w+', '', code)
+    # Strip bare width=/height= from shape constructors
+    code = re.sub(r',?\s*\bwidth\s*=\s*[\d.]+(?=\s*[,)])', '', code)
+    code = re.sub(r',?\s*\bheight\s*=\s*[\d.]+(?=\s*[,)])', '', code)
+    # Fix formula_box kwargs that might get hallucinated
+    code = re.sub(r'formula_box\(([^)]*?)(,?\s*text_color=[^,)]*)', r'formula_box(\1', code)
+    return code
+
 
 
 def _find_file(output_folder: str, scene_name: str, ext: str) -> str | None:
@@ -75,18 +110,19 @@ def _run_syntax_check(
     try:
         result = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=300)
     except subprocess.TimeoutExpired:
-        return {"ok": False, "error": "Manim timed out after 5 minutes."}
+        return {"ok": False, "error": f"Manim timed out rendering {scene_name}."}
     except FileNotFoundError:
         return {"ok": False, "error": f"Manim not found at {VENV_MANIM}. Run rebuild_venv.sh."}
 
     combined = (result.stdout or "") + (result.stderr or "")
     if result.returncode != 0:
         tb = _extract_traceback(combined) or combined[-3000:]
-        print(f"  [critic-syntax] FAIL:\n...{tb[-800:]}", flush=True)
-        return {"ok": False, "error": tb}
+        print(f"  [critic-syntax] FAIL on {scene_name}:\n...{tb[-800:]}", flush=True)
+        return {"ok": False, "error": f"Scene {scene_name} failed:\n{tb}", "scene": scene_name}
 
     video_path = _find_file(output_folder, scene_name, ".mp4")
-    return {"ok": True, "video_path": video_path or output_folder}
+    print(f"  [critic-syntax] ✓ {scene_name} rendered OK", flush=True)
+    return {"ok": True, "video_path": video_path or output_folder, "scene": scene_name}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -104,12 +140,7 @@ Check for these specific visual problems:
 
 If the frame looks clean, reply with exactly: VISUAL_OK
 
-If there are problems, reply with VISUAL_ISSUES and then list EXACT Manim spatial corrections needed, for example:
-  - Move the formula: formula.next_to(triangle, DOWN, buff=0.5)
-  - Scale down text: title.scale(0.7)
-  - Shift diagram: diagram.shift(RIGHT * 1.5)
-
-Be specific — reference the actual Manim objects and positions."""
+If there are problems, reply with VISUAL_ISSUES and then list EXACT Manim spatial corrections needed."""
 
 
 def _run_visual_check(
@@ -120,7 +151,6 @@ def _run_visual_check(
 ) -> dict:
     """
     Save last frame with manim -s, pass PNG to VL model.
-    Returns {"ok": True} or {"ok": False, "feedback": "corrections..."}
     """
     print(
         f"  [critic-visual] Frame capture attempt {visual_attempt+1}/{MAX_VISUAL_RETRIES} "
@@ -128,7 +158,6 @@ def _run_visual_check(
     )
 
     env = _build_env()
-    # manim -sql saves only the low quality last frame (much faster than full render)
     frames_dir = os.path.join(output_folder, "frames")
     os.makedirs(frames_dir, exist_ok=True)
 
@@ -144,11 +173,9 @@ def _run_visual_check(
         return {"ok": True, "skipped": True}
 
     if result.returncode != 0:
-        # Frame capture failed — don't block the pipeline, just skip visual check
         print("  [critic-visual] Frame capture failed — skipping visual check.", flush=True)
         return {"ok": True, "skipped": True}
 
-    # Find the PNG
     png_path = _find_file(frames_dir, scene_name, ".png")
     if not png_path:
         print("  [critic-visual] PNG not found — skipping.", flush=True)
@@ -156,7 +183,6 @@ def _run_visual_check(
 
     print(f"  [critic-visual] Analysing frame: {png_path}", flush=True)
 
-    # Encode as base64 for VL model
     try:
         with open(png_path, "rb") as f:
             img_b64 = base64.b64encode(f.read()).decode("utf-8")
@@ -164,7 +190,6 @@ def _run_visual_check(
         print(f"  [critic-visual] PNG read error ({exc}) — skipping.", flush=True)
         return {"ok": True, "skipped": True}
 
-    # Call VL model
     try:
         from langchain_core.messages import HumanMessage
         vl_llm = get_vl_llm(max_tokens=600)
@@ -179,13 +204,11 @@ def _run_visual_check(
         if "VISUAL_OK" in reply:
             return {"ok": True, "feedback": ""}
         else:
-            # Extract the feedback portion
             feedback = reply.replace("VISUAL_ISSUES", "").strip()
             return {"ok": False, "feedback": feedback}
 
     except Exception as exc:
-        # VL model unavailable (not installed, wrong model name, etc.) — skip gracefully
-        print(f"  [critic-visual] VL model unavailable ({exc}) — skipping visual check.", flush=True)
+        print(f"  [critic-visual] VL model unavailable ({exc}) — skipping.", flush=True)
         return {"ok": True, "skipped": True}
 
 
@@ -199,53 +222,67 @@ def run_critic(
     retry_count: int = 0,
 ) -> dict:
     """
-    Stage 1 (syntax) + Stage 2 (visual) critique.
+    Stage 1 (syntax) + Stage 2 (visual) critique for ALL scenes.
 
     Returns:
-        {"success": True,  "preview_path": str, "visual_feedback": str}
+        {"success": True,  "preview_path": str}
         {"success": False, "error": str}
-        {"success": False, "visual_error": str, "visual_feedback": str}
+        {"success": False, "visual_error": True, "visual_feedback": str}
     """
     os.makedirs(output_folder, exist_ok=True)
 
     full_script = _build_script(code_classes)
-    script_path = os.path.join(output_folder, "generated_lesson.py")
-    with open(script_path, "w", encoding="utf-8") as f:
-        f.write(full_script)
-
+    full_script = _sanitize_code(full_script)
     scene_names = _extract_scene_names(full_script)
     if not scene_names:
         return {"success": False, "error": "No class definitions found in generated code."}
 
-    first_scene = scene_names[0]
+    # Use a unique script name if there's exactly one scene to avoid race conditions in parallel rendering
+    script_name = f"script_{scene_names[0]}.py" if len(scene_names) == 1 else "generated_lesson.py"
+    script_path = os.path.join(output_folder, script_name)
+    with open(script_path, "w", encoding="utf-8") as f:
+        f.write(full_script)
 
-    # ── Stage 1: Syntax check ───────────────────────────────────────────────
-    syntax_result = _run_syntax_check(script_path, first_scene, output_folder, retry_count)
-    if not syntax_result["ok"]:
-        return {"success": False, "error": syntax_result["error"]}
+    print(f"  [critic] Validating ALL {len(scene_names)} scenes: {scene_names} via {script_name}", flush=True)
 
-    preview_path = syntax_result["video_path"]
+    # ── Stage 1: Syntax check ALL scenes ────────────────────────────────────
+    all_ok = True
+    first_video_path = ""
+    first_error = ""
 
-    # ── Stage 2: Visual check (up to MAX_VISUAL_RETRIES passes) ────────────
-    for vis_attempt in range(MAX_VISUAL_RETRIES):
-        visual_result = _run_visual_check(script_path, first_scene, output_folder, vis_attempt)
+    for scene_name in scene_names:
+        syntax_result = _run_syntax_check(script_path, scene_name, output_folder, retry_count)
+        if not syntax_result["ok"]:
+            all_ok = False
+            first_error = syntax_result["error"]
+            # Return immediately with the error so healing can target this scene
+            return {"success": False, "error": first_error}
+        if not first_video_path:
+            first_video_path = syntax_result.get("video_path", output_folder)
 
-        if visual_result.get("skipped"):
-            break  # VL unavailable — skip visual healing entirely
+    preview_path = first_video_path or output_folder
 
-        if visual_result["ok"]:
-            print(f"  [critic-visual] Frame is visually clean ✓", flush=True)
-            break
+    # ── Stage 2: Visual check (only first scene — representative frame) ─────
+    if scene_names:
+        for vis_attempt in range(MAX_VISUAL_RETRIES):
+            visual_result = _run_visual_check(script_path, scene_names[0], output_folder, vis_attempt)
 
-        feedback = visual_result.get("feedback", "")
-        print(f"  [critic-visual] Visual issues detected. Feedback:\n{feedback[:400]}", flush=True)
-        return {
-            "success":         False,
-            "visual_error":    True,
-            "visual_feedback": feedback,
-        }
+            if visual_result.get("skipped"):
+                break
 
-    print(f"  [critic] FULL PASS ✓ → {preview_path}", flush=True)
+            if visual_result["ok"]:
+                print(f"  [critic-visual] Frame is visually clean ✓", flush=True)
+                break
+
+            feedback = visual_result.get("feedback", "")
+            print(f"  [critic-visual] Visual issues detected. Feedback:\n{feedback[:400]}", flush=True)
+            return {
+                "success":         False,
+                "visual_error":    True,
+                "visual_feedback": feedback,
+            }
+
+    print(f"  [critic] ALL {len(scene_names)} SCENES PASSED ✓ → {preview_path}", flush=True)
     return {"success": True, "preview_path": preview_path}
 
 

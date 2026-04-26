@@ -1,4 +1,4 @@
-const ORCHESTRATOR_URL = 'http://127.0.0.1:8200';
+const ORCHESTRATOR_URL = process.env.ORCHESTRATOR_URL || 'http://127.0.0.1:8205';
 
 export async function POST(req: Request) {
   try {

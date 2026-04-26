@@ -3,7 +3,7 @@
 tts_server.py — Local Amharic TTS Microservice
 ================================================
 Powered by Meta's facebook/mms-tts-amh (VITS model).
-Runs on http://127.0.0.1:8100
+Runs on http://127.0.0.1:8101
 
 Endpoints:
   POST /generate_audio  — synthesise Amharic text with chosen persona
@@ -13,26 +13,11 @@ Endpoints:
 5 Voice Personas (all derived from the same MMS model via pydub audio
 manipulation — pitch shift + tempo change applied after synthesis):
 
-  1  Mekdes   — Default female, unaltered (warm tutor)
-  2  Ameha    — Deep male   (pitch -300 ¢, tempo -16%)
-  3  Dawit    — Energetic   (pitch +100 ¢, tempo +15%)
-  4  Selamawit — Patient    (pitch -150 ¢, tempo -10%)
-  5  Tigist   — Bright      (pitch +300 ¢, tempo unchanged)
-
-Technical note on the pydub frame-rate trick
----------------------------------------------
-pydub stores raw PCM + frame_rate metadata.  Changing frame_rate without
-resampling is equivalent to playing a vinyl record at a different RPM — it
-shifts both pitch and tempo simultaneously.
-
-  combined_factor = tempo_factor × 2^(cents / 1200)
-  audio._spawn(data, {"frame_rate": int(orig_rate × combined_factor)})
-        .set_frame_rate(orig_rate)
-
-  → result is shorter/faster (tempo_factor > 1) and higher-pitched
-    (cents > 0), or longer/slower/lower for the inverse.  The effect
-    is subtle for small values and produces distinctly different
-    sounding voices, which is the goal for educational personas.
+  1  Mekdes   — Female tutor  (pitch +250 ¢, tempo unchanged) — higher, warmer
+  2  Ameha    — Deep male     (pitch -300 ¢, tempo -16%)
+  3  Dawit    — Energetic     (pitch +100 ¢, tempo +15%)
+  4  Selamawit — Patient      (pitch -150 ¢, tempo -10%)
+  5  Tigist   — Bright female (pitch +350 ¢, tempo unchanged) — brightest
 """
 
 import os
@@ -40,6 +25,7 @@ import uuid
 import tempfile
 import time
 os.environ["HF_HOME"] = "/tmp/huggingface_cache"
+os.environ["PATH"] = f"/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:{os.environ.get('PATH', '')}"
 import numpy as np
 import torch
 from pathlib import Path
@@ -57,49 +43,49 @@ import uvicorn
 # ─────────────────────────────────────────────────────────────────────────────
 
 MODEL_NAME = "facebook/mms-tts-amh"
-TTS_PORT   = 8100
+TTS_PORT   = 8102
 OUTPUT_DIR = Path(tempfile.gettempdir()) / "stem_tts_output"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Persona Definitions
+# Persona Definitions — pitch-shifted from the same MMS base voice
 # ─────────────────────────────────────────────────────────────────────────────
 
 PERSONAS: dict[int, dict] = {
     1: {
         "name":        "👩‍🏫 Mekdes — The Warm Tutor (Default)",
-        "description": "Unaltered MMS voice. Natural, intimate Amharic female. "
-                       "Paces carefully so no student is left behind.",
-        "pitch_cents": 0,
+        "description": "Pitch shifted +250¢ for a warmer, higher female sound. "
+                       "Intimate and clear — paces carefully for students.",
+        "pitch_cents": 250,
         "tempo_factor": 1.0,
     },
     2: {
         "name":        "👨‍🏫 Ameha — The Deep Expert",
-        "description": "Pitch shifted down 300 ¢ + slightly slower. "
-                       "Deep, authoritative — like a senior scientist at a conference.",
+        "description": "Pitch shifted down 300¢ + slower. "
+                       "Deep, authoritative — like a senior scientist.",
         "pitch_cents": -300,
         "tempo_factor": 0.84,
     },
     3: {
         "name":        "⚡ Dawit — The Energetic Coach",
-        "description": "15% faster, pitch up 100 ¢. "
-                       "Upbeat and motivating — turns dry physics into an exciting challenge.",
+        "description": "15% faster, pitch up 100¢. "
+                       "Upbeat and motivating.",
         "pitch_cents": 100,
         "tempo_factor": 1.15,
     },
     4: {
         "name":        "📖 Selamawit — The Patient Professor",
-        "description": "10% slower, pitch down 150 ¢. "
-                       "Deliberate and methodical — every word lands precisely.",
+        "description": "10% slower, pitch down 150¢. "
+                       "Deliberate and methodical.",
         "pitch_cents": -150,
         "tempo_factor": 0.90,
     },
     5: {
         "name":        "🎓 Tigist — The Bright Tutor",
-        "description": "Pitch up 300 ¢, speed unchanged. "
-                       "Younger, warmer, brighter female — great for younger grades.",
-        "pitch_cents": 300,
+        "description": "Pitch up 350¢, speed unchanged. "
+                       "Younger, brighter female.",
+        "pitch_cents": 350,
         "tempo_factor": 1.0,
     },
 }
@@ -116,7 +102,7 @@ def romanize_amharic(text: str) -> str:
     Falls back to raw text if uroman is unavailable (quality will be reduced).
     """
     try:
-        import uroman as ur  # pip install uroman
+        import uroman as ur
         romanizer = ur.Uroman()
         romanized = romanizer.romanize_string(text, lcode="amh")
         print(f"  [uroman] '{text[:30]}' → '{romanized[:40]}'", flush=True)
@@ -141,40 +127,34 @@ def apply_persona(
 ) -> AudioSegment:
     """
     Convert a raw numpy float32 waveform to a pydub AudioSegment and
-    apply the pitch / tempo transformation for the requested persona.
-
-    Implementation uses the pydub "frame-rate trick":
-      combined_factor = tempo × 2^(cents/1200)
-      Change frame_rate metadata → set_frame_rate resamples back.
-      Net effect: audio played faster/slower and at higher/lower pitch.
+    apply the pitch/tempo transformation for the requested persona.
     """
     persona = PERSONAS.get(persona_id, PERSONAS[1])
     pitch_cents  = persona["pitch_cents"]
     tempo_factor = persona["tempo_factor"]
 
-    # numpy float32 [-1, 1]  →  16-bit signed PCM
+    # numpy float32 [-1, 1] → 16-bit signed PCM
     pcm_16 = (np.clip(waveform_np, -1.0, 1.0) * 32767).astype(np.int16)
     audio = AudioSegment(
         data=pcm_16.tobytes(),
-        sample_width=2,   # 16-bit = 2 bytes
+        sample_width=2,
         frame_rate=sample_rate,
         channels=1,
     )
 
     if pitch_cents == 0 and tempo_factor == 1.0:
-        return audio  # Persona 1 — no transformation needed
+        return audio
 
     # Combined modification factor
     pitch_factor     = 2.0 ** (pitch_cents / 1200.0)
     combined_factor  = tempo_factor * pitch_factor
 
-    # Apply: change frame_rate metadata (reinterprets samples), then resample
+    # Apply: change frame_rate metadata, then resample
     modified_rate = max(1, int(sample_rate * combined_factor))
     audio = audio._spawn(
         audio.raw_data,
         overrides={"frame_rate": modified_rate}
     )
-    # Resample back to standard 16 kHz — the tempo+pitch shift is baked in
     audio = audio.set_frame_rate(sample_rate)
 
     return audio
@@ -185,10 +165,7 @@ def apply_persona(
 # ─────────────────────────────────────────────────────────────────────────────
 
 class AmharicTTSEngine:
-    """
-    Loads facebook/mms-tts-amh once at startup.
-    All synthesis calls are synchronous (CPU-safe) under the GIL.
-    """
+    """Loads facebook/mms-tts-amh once at startup."""
 
     def __init__(self):
         self.model: VitsModel | None      = None
@@ -207,10 +184,7 @@ class AmharicTTSEngine:
         print(f"[TTS] Ready ✓  ({elapsed:.1f}s, sample_rate={self.sample_rate}Hz)", flush=True)
 
     def synthesize(self, text: str) -> tuple[np.ndarray, int]:
-        """
-        Synthesise text (Ge'ez Amharic) and return (waveform_np, sample_rate).
-        Romanisation via uroman is applied automatically.
-        """
+        """Synthesise text (Ge'ez Amharic) and return (waveform_np, sample_rate)."""
         romanized = romanize_amharic(text)
 
         inputs = self.tokenizer(romanized, return_tensors="pt")
@@ -237,7 +211,7 @@ app = FastAPI(
         "POST `/generate_audio` with `{\"text\": \"…\", \"persona_id\": 1}` "
         "to receive a path to the generated WAV file."
     ),
-    version="2.0.0",
+    version="3.0.0",
 )
 
 app.add_middleware(
@@ -264,8 +238,8 @@ class GenerateRequest(BaseModel):
     persona_id:  int       = Field(1, ge=1, le=5, description="Voice persona (1–5).")
     output_path: str | None = Field(
         None,
-        description="Optional absolute path for the output WAV. "
-                    "Auto-generated UUID path used if omitted."
+        description="Optional absolute path for the output MP3. "
+                    "Auto-generated UUID path used if omitted.",
     )
 
 
@@ -297,17 +271,17 @@ def generate_audio(req: GenerateRequest):
         raise HTTPException(400, f"persona_id must be 1–5, got {req.persona_id}.")
 
     # Determine output path
-    out_path = req.output_path or str(OUTPUT_DIR / f"{uuid.uuid4().hex}.wav")
+    out_path = req.output_path or str(OUTPUT_DIR / f"{uuid.uuid4().hex}.mp3")
     os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
 
     try:
         t0 = time.time()
         waveform_np, sample_rate = _engine.synthesize(req.text)
         audio = apply_persona(waveform_np, sample_rate, req.persona_id)
-        audio.export(out_path, format="wav")
+        audio.export(out_path, format="mp3")
         elapsed = time.time() - t0
 
-        duration = len(audio) / 1000.0  # pydub duration in ms → seconds
+        duration = len(audio) / 1000.0
         persona  = PERSONAS[req.persona_id]
 
         print(

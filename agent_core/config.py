@@ -1,25 +1,35 @@
 """
 config.py — Shared LLM + Manim configuration for all agents.
 
-LLM endpoint points to your local Ollama instance running qwen3:30b.
-Override via environment variables if needed:
-  export LOCAL_BASE_URL=http://localhost:11434/v1
-  export LLM_MODEL_NAME=qwen3-coder:30b
-  export VL_MODEL_NAME=qwen2.5-vl:7b    (vision model for visual critic)
+Cloud LLM endpoint: OpenRouter (free-tier models).
+Override any model via environment variable.
 """
 
 import os
+from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 
+load_dotenv()
 
-# ── Local LLM endpoint (Ollama) ───────────────────────────────────────────────
-LOCAL_BASE_URL = os.getenv("LOCAL_BASE_URL", "http://localhost:11434/v1")
-LLM_MODEL_NAME = os.getenv("LLM_MODEL_NAME", "qwen3:8b")
-VL_MODEL_NAME  = os.getenv("VL_MODEL_NAME",  "qwen3-vl:8b")   # vision critic
+# ── Local LLM endpoint (Ollama) ──────────────────────────────────────────────
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434/v1")
+
+# ── Role-based Model Routing (Local Inference) ───────────────────────────────
+#
+# RESEARCHER    → gemma3:1b
+# SCRIPTWRITER  → gemma3:1b
+# MANIM_CODER   → gemma3:1b
+# CRITIC / VL   → gemma3:1b
+#
+RESEARCHER_MODEL   = os.getenv("RESEARCHER_MODEL",   "llama3.1:latest")
+SCRIPTWRITER_MODEL = os.getenv("SCRIPTWRITER_MODEL", "llama3.1:latest")
+MANIM_CODER_MODEL  = os.getenv("MANIM_CODER_MODEL",  "qwen3-coder:30b")
+CRITIC_MODEL       = os.getenv("CRITIC_MODEL",       "qwen3:8b")
+VL_MODEL_NAME      = os.getenv("VL_MODEL_NAME",      "qwen3-vl:8b")
 
 # ── TTS Server ────────────────────────────────────────────────────────────────
-TTS_SERVER_URL    = os.getenv("TTS_SERVER_URL", "http://127.0.0.1:8100")
-ORCHESTRATOR_PORT = int(os.getenv("ORCHESTRATOR_PORT", "8200"))
+TTS_SERVER_URL    = os.getenv("TTS_SERVER_URL", "http://127.0.0.1:8102")
+ORCHESTRATOR_PORT = int(os.getenv("ORCHESTRATOR_PORT", "8205"))
 
 # ── Manim environment ─────────────────────────────────────────────────────────
 VENV_PYTHON = "/tmp/stem_venv/bin/python3"
@@ -35,32 +45,31 @@ MANIM_ENV_PATCH = {
 MAX_CRITIC_RETRIES = 3
 MAX_VISUAL_RETRIES = 2
 
-
-def get_llm(temperature: float = 0.2, max_tokens: int = 4096) -> ChatOpenAI:
+def get_llm(model_name: str, temperature: float = 0.2, max_tokens: int = 4096) -> ChatOpenAI:
     """
-    Returns a ChatOpenAI instance pointed at the local Ollama endpoint.
-    ChatOpenAI works flawlessly with Ollama's /v1 OpenAI-compatible API.
+    Returns a unified ChatOpenAI instance pointed at local Ollama.
     """
     return ChatOpenAI(
-        base_url=LOCAL_BASE_URL,
-        model=LLM_MODEL_NAME,
-        api_key="local-execution-does-not-need-a-key",
+        base_url=OLLAMA_BASE_URL,
+        model=model_name,
+        api_key="ollama-local",
         temperature=temperature,
         max_tokens=max_tokens,
-        timeout=900,
-        max_retries=0,
+        timeout=1200,  # 20 minutes for local CPU inference
+        max_retries=1,
     )
-
 
 def get_vl_llm(max_tokens: int = 600) -> ChatOpenAI:
     """
     Returns a ChatOpenAI instance for the vision-language model.
-    Used by the visual critic to inspect rendered Manim frames.
+    Used by the visual critic to inspect rendered Manim frames locally.
     """
     return ChatOpenAI(
-        base_url=LOCAL_BASE_URL,
+        base_url=OLLAMA_BASE_URL,
         model=VL_MODEL_NAME,
-        api_key="local-execution-does-not-need-a-key",
+        api_key="ollama-local",
         temperature=0.1,
         max_tokens=max_tokens,
+        timeout=120,
+        max_retries=1,
     )

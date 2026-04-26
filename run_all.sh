@@ -43,9 +43,9 @@ fi
 echo ""
 echo "============================================"
 echo "  🚀 Starting Next.js on http://localhost:3011"
-echo "  🎙  TTS Server:      http://localhost:8100"
-echo "  🤖  Orchestrator:    http://localhost:8200"
+echo "  🎙  TTS Server:      http://localhost:8102"
+echo "  🤖  Orchestrator:    http://localhost:8205"
 echo "============================================"
 echo ""
 cd "$WEBAPP"
-exec node ./node_modules/next/dist/bin/next dev -p 3011
+exec node ./node_modules/next/dist/bin/next dev -p 3012

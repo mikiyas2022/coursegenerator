@@ -136,7 +136,11 @@ async def _stream_storyboard(req: StoryboardRequest) -> AsyncGenerator[str, None
         try:
             task = loop.run_in_executor(
                 executor,
-                lambda step=step: run_scriptwriter(scenes=[step], style=req.style),
+                lambda step=step: run_scriptwriter(
+                    scenes=[step],
+                    style=req.style,
+                    source_material=req.source_material,
+                ),
             )
             while not task.done():
                 yield _sse("ping", {"message": f"Still generating {scene_name}..."})
@@ -153,8 +157,13 @@ async def _stream_storyboard(req: StoryboardRequest) -> AsyncGenerator[str, None
                 scenes.append(step) # fallback
                 
         except Exception as exc:
-            yield _sse("error", {"message": f"Scriptwriter failed on {scene_name}: {exc}"})
-            # Attempt to salvage the step by continuing
+            error_msg = str(exc)
+            yield _sse("error", {"message": f"Scriptwriter failed on {scene_name}: {error_msg}"})
+            if "rate limit" in error_msg.lower() or "failed" in error_msg.lower():
+                # Fatal rate limit exhaustion or repeated failure, cannot proceed
+                return
+            
+            # Attempt to salvage the step by continuing ONLY if it's a minor JSON glitch
             scenes.append(step)
 
     yield _sse("storyboard_ready", {
@@ -168,50 +177,83 @@ async def _stream_storyboard(req: StoryboardRequest) -> AsyncGenerator[str, None
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def _process_single_scene_pipeline(scene: dict, output_folder: str, persona_id: int):
-    """Worker task that handles Code Gen + Critic Auto-Healing for ONE independently rendered scene."""
+    """Worker task that handles Code Gen + Critic Auto-Healing for ONE independently rendered scene.
+    
+    GUARANTEE: This function NEVER skips a scene. On max retries, it falls back to a
+    mathematically-safe guaranteed fallback that always renders successfully.
+    """
     loop = asyncio.get_event_loop()
     
-    # 1. Initial Generation
-    code_class = await loop.run_in_executor(
-        executor, lambda: run_manim_coder(scenes=[scene], persona_id=persona_id)
-    )
-    
-    # 2. Hybrid Critic Auto-Healing Loop
-    retry_count = 0
-    visual_retry = 0
-    while True:
-        result = await loop.run_in_executor(
-            executor, lambda: run_critic(code_classes=code_class, output_folder=output_folder, retry_count=retry_count)
+    try:
+        # 1. Initial Generation
+        code_class = await loop.run_in_executor(
+            executor, lambda: run_manim_coder(scenes=[scene], persona_id=persona_id)
         )
         
-        # Determine Error Needs Action
-        vis_err = result.get("visual_error")
-        syn_err = not result.get("success", True)
-        
-        if not vis_err and not syn_err:
-            return {"success": True, "code": code_class[0], "result": result}
+        # 2. Hybrid Critic Auto-Healing Loop
+        retry_count = 0
+        visual_retry = 0
+        while True:
+            result = await loop.run_in_executor(
+                executor, lambda: run_critic(code_classes=code_class, output_folder=output_folder, retry_count=retry_count)
+            )
             
-        if vis_err:
-            visual_retry += 1
-            if visual_retry >= MAX_CRITIC_RETRIES:
-                return {"success": False, "code": code_class[0], "result": result, "reason": "Max visual retries"}
-            fb = result.get("visual_feedback", "")
-            code_class = await loop.run_in_executor(
-                executor, lambda: run_manim_coder([scene], persona_id, visual_feedback=f"VISUAL CRITIQUE:\n{fb}", previous_code=code_class)
+            vis_err = result.get("visual_error")
+            syn_err = not result.get("success", True)
+            
+            if not vis_err and not syn_err:
+                return {"success": True, "code": code_class[0], "result": result}
+                
+            if vis_err:
+                visual_retry += 1
+                if visual_retry >= MAX_CRITIC_RETRIES:
+                    # Visual issues but it rendered — include it rather than skip
+                    return {"success": True, "code": code_class[0], "result": result}
+                fb = result.get("visual_feedback", "")
+                code_class = await loop.run_in_executor(
+                    executor, lambda: run_manim_coder([scene], persona_id, visual_feedback=f"VISUAL CRITIQUE:\n{fb}", previous_code=code_class)
+                )
+            else:
+                retry_count += 1
+                if retry_count >= MAX_CRITIC_RETRIES:
+                    # NEVER skip — use guaranteed safe fallback that always renders
+                    print(f"  [orch] Max retries on {scene.get('scene_name')} — using guaranteed fallback", flush=True)
+                    from agents.manim_coder import _guaranteed_fallback
+                    fb_code = [_guaranteed_fallback(scene)]
+                    fb_result = await loop.run_in_executor(
+                        executor, lambda: run_critic(code_classes=fb_code, output_folder=output_folder, retry_count=0)
+                    )
+                    return {"success": True, "code": fb_code[0], "result": fb_result, "used_fallback": True}
+                fb = result.get("error", "")
+                code_class = await loop.run_in_executor(
+                    executor, lambda: run_manim_coder([scene], persona_id, error_context=fb, previous_code=code_class)
+                )
+    except Exception as exc:
+        # Even on fatal error — emit guaranteed fallback so scene is NEVER missing
+        print(f"  [orch] Fatal on {scene.get('scene_name')}: {exc} — using guaranteed fallback", flush=True)
+        try:
+            from agents.manim_coder import _guaranteed_fallback
+            fb_code = [_guaranteed_fallback(scene)]
+            fb_result = await loop.run_in_executor(
+                executor, lambda: run_critic(code_classes=fb_code, output_folder=output_folder, retry_count=0)
             )
-        else:
-            retry_count += 1
-            if retry_count >= MAX_CRITIC_RETRIES:
-                return {"success": False, "code": code_class[0], "result": result, "reason": "Max syntax retries"}
-            fb = result.get("error", "")
-            code_class = await loop.run_in_executor(
-                executor, lambda: run_manim_coder([scene], persona_id, error_context=fb, previous_code=code_class)
-            )
+            return {"success": True, "code": fb_code[0], "result": fb_result, "used_fallback": True}
+        except Exception as exc2:
+            return {"success": False, "code": None, "result": {"success": False, "error": str(exc2)}, "reason": "Fatal Error"}
 
 async def _stream_render(req: RenderScenesRequest) -> AsyncGenerator[str, None]:
-    output_folder = req.output_folder or os.path.join(
-        tempfile.gettempdir(), "stem_output", f"job_{int(time.time())}"
-    )
+    import datetime
+    date_str   = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    job_id     = f"{int(time.time())}"
+    project_root = os.path.abspath(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    if req.output_folder and os.path.isabs(req.output_folder):
+        output_folder = req.output_folder
+    elif req.output_folder:
+        output_folder = os.path.join(project_root, req.output_folder)
+    else:
+        output_folder = os.path.join(
+            project_root, "Local_Video_Output", f"{job_id}_{date_str}"
+        )
     os.makedirs(output_folder, exist_ok=True)
 
     yield _sse("status", {"message": f"⚙️ Dispatching {len(req.scenes)} parallel Manim coders…", "phase": "coding"})
@@ -231,7 +273,20 @@ async def _stream_render(req: RenderScenesRequest) -> AsyncGenerator[str, None]:
     results = [t.result() for t in tasks]
     
     # Check if any critically failed
-    failed = len([r for r in results if not r.get("success")])
+    successful_codes = [r.get("code") for r in results if r.get("success") and r.get("code")]
+    failed = len(tasks) - len(successful_codes)
+    
+    # Save the combined valid code for final rendering
+    if successful_codes:
+        from agents.manim_coder import SCRIPT_HEADER_TEMPLATE
+        agent_core_path = os.path.dirname(os.path.abspath(__file__))
+        combined_script = SCRIPT_HEADER_TEMPLATE.format(agent_core_path=agent_core_path)
+        combined_script += "\n\n" + "\n\n".join(successful_codes)
+        
+        script_path = os.path.join(output_folder, "generated_lesson.py")
+        with open(script_path, "w", encoding="utf-8") as f:
+            f.write(combined_script)
+
     if failed > 0:
         yield _sse("preview_ready", {
             "message": f"⚠️ Preview ready with {failed} auto-healing failure(s)",

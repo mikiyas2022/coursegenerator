@@ -1,102 +1,208 @@
 """
-video_compiler/compiler.py — Parallel Manim Renderer & FFmpeg Muxer
+video_compiler/compiler.py — Sequential Manim Renderer & FFmpeg Muxer
 
-Replaces legacy sequential AST builder. Executes Manim -qh concurrently
-for all approved scenes, then concatenates them into Masterpiece.mp4.
+Renders ALL approved scene classes in HIGH QUALITY sequentially
+(parallel Manim runs conflict on the same machine), then concatenates
+into a single production-ready Masterpiece.mp4.
+
+Output folder structure:
+  {output_folder}/
+    generated_lesson.py          ← the multi-class Manim script
+    scene_renders/               ← individual scene MP4s
+      Scene1_Intro.mp4
+      Scene2_Core.mp4
+      ...
+    Masterpiece.mp4              ← final merged video
 """
 
 import os
+import re
 import subprocess
-import glob
-from concurrent.futures import ThreadPoolExecutor, as_completed
-
-# Try to use config if available, otherwise fallback
 import sys
-agent_core_path = os.path.dirname(os.path.dirname(__file__))
-sys.path.insert(0, os.path.join(agent_core_path, "agent_core"))
+from pathlib import Path
+from typing import Optional, List
+
+# ── Locate dependencies ───────────────────────────────────────────────────────
+agent_core_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "agent_core")
+sys.path.insert(0, agent_core_path)
 try:
     from config import VENV_MANIM, MANIM_ENV_PATCH
 except ImportError:
-    VENV_MANIM = "/tmp/stem_venv/bin/manim"
+    VENV_MANIM      = "/tmp/stem_venv/bin/manim"
     MANIM_ENV_PATCH = {}
+
+# FFmpeg — prefer homebrew, fall back to system PATH
+FFMPEG = (
+    "/opt/homebrew/bin/ffmpeg"
+    if os.path.exists("/opt/homebrew/bin/ffmpeg")
+    else "ffmpeg"
+)
+
 
 def _build_env() -> dict:
     env = os.environ.copy()
     env.update(MANIM_ENV_PATCH)
+    # Ensure ffmpeg dir is in PATH so Manim's internal calls also find it
+    ffmpeg_dir = os.path.dirname(FFMPEG)
+    if ffmpeg_dir and ffmpeg_dir not in env.get("PATH", ""):
+        env["PATH"] = ffmpeg_dir + ":" + env.get("PATH", "")
     return env
 
-def _find_file(output_folder: str, scene_name: str, ext: str) -> str | None:
-    for root, _, files in os.walk(output_folder):
-        for f in files:
-            if f.endswith(ext) and scene_name in f:
+
+def _find_mp4(folder: str, scene_name: str) -> Optional[str]:
+    """Walk the folder tree and find the MP4 belonging to scene_name."""
+    for root, _, files in os.walk(folder):
+        for f in sorted(files):
+            if f.endswith(".mp4") and scene_name in f:
                 return os.path.join(root, f)
     return None
 
-def _run_single_manim(scene: str, script_path: str, output_folder: str, res_flag: list, env: dict) -> dict:
-    cmd = [VENV_MANIM, "-qh", "--disable_caching", *res_flag, "--media_dir", output_folder, script_path, scene]
-    print(f"  [compiler-parallel] Rendering {scene} (4K)…", flush=True)
-    result = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=900)
-    if result.returncode != 0:
-        return {"success": False, "scene": scene, "error": result.stderr[-1500:]}
-    path = _find_file(output_folder, scene, ".mp4")
-    return {"success": True, "scene": scene, "path": path}
 
-def run_final_render_parallel(output_folder: str, orientation: str = "landscape", scene_names: list[str] = None) -> dict:
-    """Re-render ALL scene classes in HIGH QUALITY parallelly, then concat with FFmpeg."""
+def _extract_scene_names(script_content: str) -> list[str]:
+    """Extract all class names regardless of base class name."""
+    return re.findall(r"^class\s+(\w+)\s*\([^)]*\):", script_content, re.MULTILINE)
+
+
+def _render_scene(
+    scene_name: str,
+    script_path: str,
+    render_dir: str,
+    resolution: str,
+    env: dict,
+) -> dict:
+    """Render a single scene at high quality and return its MP4 path."""
+    print(f"  [compiler] Rendering {scene_name}…", flush=True)
+
+    cmd = [
+        VENV_MANIM,
+        "-qh",                   # high quality
+        "--disable_caching",
+        "--media_dir", render_dir,
+    ]
+
+    if resolution == "portrait":
+        cmd += ["--resolution", "1080,1920"]
+    # landscape is Manim's default 1920x1080 at -qh
+
+    cmd += [script_path, scene_name]
+
+    try:
+        result = subprocess.run(
+            cmd, env=env,
+            capture_output=True, text=True,
+            timeout=600,
+        )
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "scene": scene_name, "error": "Timed out after 10 min"}
+
+    if result.returncode != 0:
+        err = (result.stderr or "") + (result.stdout or "")
+        return {"ok": False, "scene": scene_name, "error": err[-2000:]}
+
+    mp4 = _find_mp4(render_dir, scene_name)
+    if not mp4:
+        return {"ok": False, "scene": scene_name, "error": "MP4 not found after render"}
+
+    print(f"  [compiler] ✓ {scene_name} → {mp4}", flush=True)
+    return {"ok": True, "scene": scene_name, "path": mp4}
+
+
+def run_final_render_parallel(
+    output_folder: str,
+    orientation: str = "landscape",
+    scene_names: Optional[List[str]] = None,
+) -> dict:
+    """
+    Render ALL scenes in the generated_lesson.py sequentially (safe on single host),
+    then merge into one production Masterpiece.mp4 via FFmpeg.
+    """
     script_path = os.path.join(output_folder, "generated_lesson.py")
     if not os.path.exists(script_path):
         return {"success": False, "error": "generated_lesson.py not found. Run preview first."}
 
-    # If scene names aren't passed, extract them
-    if not scene_names:
-        import re
-        with open(script_path, encoding="utf-8") as f:
-            content = f.read()
-        scene_names = re.findall(r"^class\s+(\w+)\s*\([^)]*Scene[^)]*\):", content, re.MULTILINE)
+    with open(script_path, encoding="utf-8") as f:
+        content = f.read()
 
     if not scene_names:
-        return {"success": False, "error": "No scene classes found."}
+        scene_names = _extract_scene_names(content)
 
-    env = _build_env()
-    res_flag = ["--resolution", "1080,1920"] if orientation == "portrait" else []
+    if not scene_names:
+        return {"success": False, "error": "No scene classes found in generated_lesson.py."}
 
-    rendered_paths = []
-    # ── 1. Dispatch Parallel Render ──
-    with ThreadPoolExecutor(max_workers=max(2, os.cpu_count() or 4)) as executor:
-        futures = [
-            executor.submit(_run_single_manim, scene, script_path, output_folder, res_flag, env)
-            for scene in scene_names
-        ]
-        
-        # Maintain order based on execution
-        results = []
-        for future in as_completed(futures):
-            res = future.result()
-            if not res["success"]:
-                return {"success": False, "error": f"Scene {res['scene']} failed: {res['error']}"}
-            results.append(res)
-            
-    # Guarantee chronological order for FFmpeg concat
+    print(f"  [compiler] {len(scene_names)} scenes to render: {scene_names}", flush=True)
+
+    env       = _build_env()
+    render_dir = os.path.join(output_folder, "scene_renders")
+    os.makedirs(render_dir, exist_ok=True)
+
     ordered_paths = []
-    for s in scene_names:
-        for r in results:
-            if r["scene"] == s and r["path"]:
-                ordered_paths.append(r["path"])
+    failed_scenes  = []
+
+    # ── Sequential render — prevents Manim media-dir conflicts ──────────────
+    for scene in scene_names:
+        res = _render_scene(scene, script_path, render_dir, orientation, env)
+        if res["ok"]:
+            ordered_paths.append(res["path"])
+        else:
+            print(f"  [compiler] WARN: {scene} failed — {res['error'][-300:]}", flush=True)
+            failed_scenes.append(scene)
+            # Continue rendering remaining scenes; we'll build the video from what worked
 
     if not ordered_paths:
-        return {"success": False, "error": "No valid MP4 paths recovered from rendering."}
+        return {
+            "success": False,
+            "error": f"All {len(scene_names)} scenes failed to render.\n"
+                     + "\n".join(failed_scenes),
+        }
 
-    # ── 2. FFmpeg Concatenation ──
-    print("  [compiler-ffmpeg] Concatenating scenes into Masterpiece.mp4...", flush=True)
-    list_path = os.path.join(output_folder, "concat_list.txt")
+    # ── FFmpeg concatenation ─────────────────────────────────────────────────
+    print(f"  [compiler] Merging {len(ordered_paths)} scenes into Masterpiece.mp4…", flush=True)
+
+    list_path  = os.path.join(output_folder, "concat_list.txt")
+    master_path = os.path.join(output_folder, "Masterpiece.mp4")
+
     with open(list_path, "w") as f:
         for p in ordered_paths:
-            f.write(f"file '{p}'\n")
-            
-    master_v = os.path.join(output_folder, "Masterpiece.mp4")
-    subprocess.run([
-        "ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", list_path,
-        "-c", "copy", master_v
-    ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            # FFmpeg concat requires escaped single quotes in paths
+            safe = p.replace("'", "'\\''")
+            f.write(f"file '{safe}'\n")
 
-    return {"success": True, "rendered_paths": ordered_paths, "master_path": master_v}
+    ffmpeg_cmd = [
+        FFMPEG, "-y",
+        "-f",    "concat",
+        "-safe", "0",
+        "-i",    list_path,
+        "-c:v",  "libx264",     # re-encode to guarantee compatibility
+        "-preset", "fast",
+        "-crf",  "18",          # visually lossless
+        "-c:a",  "aac",
+        "-b:a",  "192k",
+        master_path,
+    ]
+
+    try:
+        result = subprocess.run(
+            ffmpeg_cmd, env=env,
+            capture_output=True, text=True,
+            timeout=3600,
+        )
+        if result.returncode != 0:
+            return {
+                "success": False,
+                "error": f"FFmpeg merge failed:\n{(result.stderr or '')[-1500:]}",
+            }
+    except subprocess.TimeoutExpired:
+        return {"success": False, "error": "FFmpeg merge timed out (>60 min)"}
+    except FileNotFoundError:
+        return {"success": False, "error": f"ffmpeg not found at {FFMPEG}"}
+
+    size_mb = os.path.getsize(master_path) / 1_048_576
+    print(f"  [compiler] Masterpiece.mp4 ready ({size_mb:.1f} MB) → {master_path}", flush=True)
+
+    return {
+        "success":        True,
+        "rendered_paths": ordered_paths,
+        "failed_scenes":  failed_scenes,
+        "master_path":    master_path,
+        "size_mb":        round(size_mb, 1),
+    }

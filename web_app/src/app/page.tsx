@@ -42,14 +42,29 @@ type UIView =
 // ── Constants ──────────────────────────────────────────────────────────────
 
 const PERSONAS = [
-  { id: 1, icon: '👩‍🏫', name: 'Mekdes',    badge: 'DEFAULT', color: 'emerald' },
-  { id: 2, icon: '👨‍🏫', name: 'Ameha',     badge: 'MALE',    color: 'blue'    },
-  { id: 3, icon: '⚡',   name: 'Dawit',     badge: 'MALE',    color: 'blue'    },
-  { id: 4, icon: '📖',  name: 'Selamawit', badge: 'FEMALE',  color: 'pink'    },
-  { id: 5, icon: '🎓',  name: 'Tigist',    badge: 'FEMALE',  color: 'pink'    },
+  { id: 1, icon: '👩‍🏫', name: 'Mekdes',    badge: 'FEMALE · WARM',   color: 'emerald', desc: 'Higher pitched, warm female tutor voice' },
+  { id: 2, icon: '👨‍🏫', name: 'Ameha',     badge: 'MALE · DEEP',     color: 'blue',    desc: 'Deep, authoritative male voice' },
+  { id: 3, icon: '⚡',   name: 'Dawit',     badge: 'MALE · ENERGY',   color: 'blue',    desc: 'Energetic, upbeat coaching voice' },
+  { id: 4, icon: '📖',  name: 'Selamawit', badge: 'FEMALE · CALM',   color: 'emerald', desc: 'Patient, methodical professor voice' },
+  { id: 5, icon: '🎓',  name: 'Tigist',    badge: 'FEMALE · BRIGHT', color: 'emerald', desc: 'Bright, younger female tutor' },
 ];
-const AUDIENCES = ['Child (Grade 1–6)', 'High School (Grade 7–12)', 'University', 'Professional'];
-const STYLES    = ['Playful / Storytelling', 'Formal / Academic', 'Inquiry-Based / 3b1b Style'];
+const AUDIENCES = [
+  'Kindergarten (Playful/Animated)',
+  'Child (Grade 1–6)',
+  'Middle School (Curious & Fun)',
+  'High School (Exploratory)',
+  'University (Rigorous / Academic)',
+  'Professional',
+  'General Public (Edutainment)',
+];
+const STYLES = [
+  'Seductive & Addictive (High-Retention)',
+  'World-Class 3b1b (Deep Visual Insight)',
+  'Playful & Expressive Storytelling',
+  'Smooth Professional Flawless',
+  'Inquiry-Based',
+  'Formal / Academic'
+];
 const BADGE     : Record<string, string> = {
   emerald: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
   blue:    'bg-blue-500/20 text-blue-400 border-blue-500/30',
@@ -63,8 +78,8 @@ export default function StudioPage() {
   const [mounted,       setMounted]       = useState(false);
   const [view,          setView]          = useState<UIView>('input');
   const [form,          setForm]          = useState<FormState>({
-    topic: '', audience: 'High School (Grade 7–12)',
-    style: 'Inquiry-Based / 3b1b Style', metaphor: '',
+    topic: '', audience: 'High School (Exploratory)',
+    style: 'World-Class 3b1b (Deep Visual Insight)', metaphor: '',
     sourceMaterial: '', personaId: 1, orientation: 'landscape',
   });
 
@@ -234,7 +249,7 @@ export default function StudioPage() {
   const renderFinal = async () => {
     if (!outputFolder) return;
     try {
-      const res = await fetch('http://localhost:8200/render_final', {
+      const res = await fetch('http://localhost:8205/render_final', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ output_folder: outputFolder, orientation: form.orientation }),
@@ -367,7 +382,8 @@ export default function StudioPage() {
                     form.personaId === p.id ? 'border-blue-500 bg-blue-500/10' : 'border-white/5 bg-black/20 hover:border-white/15'}`}>
                   <span className="text-xl">{p.icon}</span>
                   <span className={`text-[10px] font-bold ${form.personaId === p.id ? 'text-blue-300' : 'text-gray-500'}`}>{p.name}</span>
-                  <span className={`text-[8px] px-1 py-0.5 rounded border font-bold ${BADGE[p.color]}`}>{p.badge}</span>
+                  <span className={`text-[9px] px-1.5 py-0.5 rounded border font-bold ${BADGE[p.color]}`}>{p.badge}</span>
+                  <span className="text-[8px] text-gray-600 text-center leading-tight">{p.desc}</span>
                 </button>
               ))}
             </div>

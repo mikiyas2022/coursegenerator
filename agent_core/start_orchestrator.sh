@@ -5,7 +5,7 @@ set -e
 
 VENV=/tmp/stem_venv
 ORCH_DIR="$(cd "$(dirname "$0")" && pwd)"
-PORT=8200
+PORT=8205
 HEALTH_URL="http://127.0.0.1:${PORT}/health"
 LOG=/tmp/stem_orchestrator.log
 
