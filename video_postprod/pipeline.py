@@ -176,6 +176,7 @@ def run_postproduction(
     topic: str,
     master_path: str = "",
     scenes: list[dict] | None = None,
+    mode: str = "3b1b",
 ) -> dict:
     """
     Run the full post-production pipeline on a rendered Masterpiece.mp4.
@@ -262,7 +263,10 @@ def run_postproduction(
 
     # ── Final output ──────────────────────────────────────────────────────────
     safe_name = _safe_topic_name(topic)
-    final_path = str(folder / f"{safe_name}_3B1B_Style.mp4")
+    if mode == "blackboard":
+        final_path = str(folder / f"{safe_name}_Blackboard_Solution.mp4")
+    else:
+        final_path = str(folder / f"{safe_name}_3B1B_Style.mp4")
     shutil.copy2(current, final_path)
 
     # Clean up temp files

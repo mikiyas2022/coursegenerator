@@ -12,6 +12,9 @@ interface FormState {
   sourceMaterial: string;
   personaId:      number;
   orientation:    'landscape' | 'portrait';
+  mode:           '3b1b' | 'blackboard';
+  correctAnswer?: string;
+  showFinalAnswer?: boolean;
 }
 
 interface StoryboardScene {
@@ -82,6 +85,9 @@ export default function StudioPage() {
     topic: '', audience: 'High School (Exploratory)',
     style: 'World-Class 3b1b (Deep Visual Insight)', metaphor: '',
     sourceMaterial: '', personaId: 1, orientation: 'landscape',
+    mode: '3b1b',
+    correctAnswer: '',
+    showFinalAnswer: true
   });
 
   // Storyboard data (editable)
@@ -186,8 +192,9 @@ export default function StudioPage() {
   }, [form]);
 
   // ── Full Automation (one-shot) ────────────────────────────────────────────
-  const generateFullVideo = useCallback(async () => {
+  const generateFullVideo = useCallback(async (modeArg: '3b1b' | 'blackboard' = '3b1b') => {
     if (!form.topic.trim()) return;
+    setF('mode', modeArg);
     setView('full_auto');
     setFullAutoLogs([{ msg: '🚀 Starting full 3B1B pipeline…', phase: 'init', time: new Date().toLocaleTimeString() }]);
     setMasterPath('');
@@ -209,6 +216,7 @@ export default function StudioPage() {
           persona_id:      form.personaId,
           orientation:     form.orientation,
           run_postprod:    true,
+          mode:            modeArg,
         }),
       });
       if (!res.body) throw new Error('No stream');
@@ -426,6 +434,26 @@ export default function StudioPage() {
             </Card>
 
             <Card>
+              <Label>✅ Correct Answer (Optional - Blackboard Mode)</Label>
+              <input
+                type="text"
+                placeholder="e.g. '42 m/s^2'"
+                value={form.correctAnswer || ''}
+                onChange={e => setF('correctAnswer', e.target.value)}
+                className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 transition"
+              />
+              <label className="flex items-center gap-2 mt-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={form.showFinalAnswer}
+                  onChange={e => setF('showFinalAnswer', e.target.checked)}
+                  className="w-4 h-4 rounded border-white/10 bg-black/40 text-emerald-500 focus:ring-emerald-500/50"
+                />
+                <span className="text-sm text-gray-400">Show final answer at the end</span>
+              </label>
+            </Card>
+
+            <Card>
               <button type="button" onClick={() => setShowSource(s => !s)}
                 className="flex items-center justify-between w-full text-left">
                 <Label>📄 Source Material <span className="text-gray-700 normal-case font-normal text-[11px]">(optional)</span></Label>
@@ -464,11 +492,19 @@ export default function StudioPage() {
             </div>
 
             {/* One-shot full automation button */}
-            <button type="button" disabled={!form.topic.trim()}
-              onClick={generateFullVideo}
-              className="w-full py-4 rounded-2xl bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-400 hover:to-orange-400 font-black text-black text-sm uppercase tracking-widest transition-all shadow-2xl shadow-yellow-500/30 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2">
-              ⚡ Generate Full 3B1B Video (Auto)
-            </button>
+            <div className="grid grid-cols-2 gap-4">
+              <button type="button" disabled={!form.topic.trim()}
+                onClick={() => generateFullVideo('3b1b')}
+                className="w-full py-4 rounded-2xl bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-400 hover:to-orange-400 font-black text-black text-xs uppercase tracking-widest transition-all shadow-xl shadow-yellow-500/30 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+                ⚡ 3B1B Mode
+              </button>
+              
+              <button type="button" disabled={!form.topic.trim()}
+                onClick={() => generateFullVideo('blackboard')}
+                className="w-full py-4 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 font-black text-white text-xs uppercase tracking-widest transition-all shadow-xl shadow-emerald-500/30 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+                ✍️ Blackboard Q&A
+              </button>
+            </div>
             <p className="text-center text-[10px] text-gray-600">↑ Zero human intervention — full pipeline runs automatically</p>
 
             {/* Manual storyboard flow */}
@@ -692,7 +728,7 @@ export default function StudioPage() {
               <div className="w-20 h-20 mx-auto rounded-full bg-gradient-to-br from-yellow-500 to-orange-500 flex items-center justify-center text-3xl shadow-2xl shadow-yellow-500/30 animate-pulse">
                 ⚡
               </div>
-              <h2 className="text-2xl font-black text-white">3B1B Mode Active</h2>
+              <h2 className="text-2xl font-black text-white">{form.mode === '3b1b' ? '3B1B Mode' : 'Blackboard Q&A'} Active</h2>
               <p className="text-gray-400 text-sm">Full automation running — sit back and watch the magic happen.</p>
             </div>
 

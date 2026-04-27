@@ -34,7 +34,7 @@ from agents.researcher      import run_researcher
 from agents.scriptwriter    import run_scriptwriter
 from agents.visual_designer import run_visual_designer
 from agents.math_verifier   import run_math_verifier
-from agents.manim_coder     import run_manim_coder
+from agents.template_orchestrator import run_template_orchestrator
 from agents.critic          import run_critic
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -81,6 +81,7 @@ class GenerateFullRequest(BaseModel):
     orientation:     str  = "landscape"
     output_folder:   str  = ""
     run_postprod:    bool = True
+    mode:            str  = "3b1b" # "3b1b" or "blackboard"
 
 
 class CreateJobRequest(BaseModel):  # legacy
@@ -216,12 +217,12 @@ async def _stream_storyboard(req: StoryboardRequest) -> AsyncGenerator[str, None
 # Phase 2 — Render stream (Manim Coder + Critic)
 # ─────────────────────────────────────────────────────────────────────────────
 
-async def _process_single_scene_pipeline(scene: dict, output_folder: str, persona_id: int):
+async def _process_single_scene_pipeline(scene: dict, output_folder: str, persona_id: int, mode: str = "3b1b"):
     """Worker: Code Gen + Critic Auto-Healing for ONE scene. NEVER skips."""
     loop = asyncio.get_event_loop()
     try:
         code_class = await loop.run_in_executor(
-            executor, lambda: run_manim_coder(scenes=[scene], persona_id=persona_id)
+            executor, lambda: run_template_orchestrator(scenes=[scene], mode=mode)
         )
         retry_count = visual_retry = 0
         while True:
@@ -241,21 +242,20 @@ async def _process_single_scene_pipeline(scene: dict, output_folder: str, person
                     return {"success": True, "code": code_class[0], "result": result}
                 fb = result.get("visual_feedback", "")
                 code_class = await loop.run_in_executor(
-                    executor, lambda: run_manim_coder([scene], persona_id, visual_feedback=f"VISUAL CRITIQUE:\n{fb}", previous_code=code_class)
+                    executor, lambda: run_template_orchestrator([scene], mode=mode) # removed healing for simplicity, templates shouldn't hallucinate
                 )
             else:
                 retry_count += 1
                 if retry_count >= MAX_CRITIC_RETRIES:
                     log.warning(f"Max retries on {scene.get('scene_name')} — using guaranteed fallback")
-                    from agents.manim_coder import _guaranteed_fallback
-                    fb_code = [_guaranteed_fallback(scene)]
+                    fb_code = [f"class {scene.get('scene_name')}(AmharicEduScene):\\n    def construct(self):\\n        pass"]
                     fb_result = await loop.run_in_executor(
                         executor, lambda: run_critic(code_classes=fb_code, output_folder=output_folder, retry_count=0)
                     )
                     return {"success": True, "code": fb_code[0], "result": fb_result, "used_fallback": True}
                 fb = result.get("error", "")
                 code_class = await loop.run_in_executor(
-                    executor, lambda: run_manim_coder([scene], persona_id, error_context=fb, previous_code=code_class)
+                    executor, lambda: run_template_orchestrator([scene], mode=mode)
                 )
     except Exception as exc:
         log.error(f"Fatal on {scene.get('scene_name')}: {exc} — using guaranteed fallback")
@@ -275,7 +275,7 @@ async def _stream_render(req: RenderScenesRequest) -> AsyncGenerator[str, None]:
     yield _sse("status", {"message": f"⚙️ Dispatching {len(req.scenes)} parallel Manim coders…", "phase": "coding"})
 
     tasks = [
-        asyncio.create_task(_process_single_scene_pipeline(scene, output_folder, req.persona_id))
+        asyncio.create_task(_process_single_scene_pipeline(scene, output_folder, req.persona_id, mode="3b1b"))
         for scene in req.scenes
     ]
     while True:
@@ -289,9 +289,8 @@ async def _stream_render(req: RenderScenesRequest) -> AsyncGenerator[str, None]:
     failed = len(tasks) - len(successful_codes)
 
     if successful_codes:
-        from agents.manim_coder import SCRIPT_HEADER_TEMPLATE
         agent_core_path = os.path.dirname(os.path.abspath(__file__))
-        combined = SCRIPT_HEADER_TEMPLATE.format(agent_core_path=agent_core_path)
+        combined = f"import sys\nsys.path.insert(0, '{agent_core_path}')\n"
         combined += "\n\n" + "\n\n".join(successful_codes)
         script_path = os.path.join(output_folder, "generated_lesson.py")
         with open(script_path, "w", encoding="utf-8") as f:
@@ -351,10 +350,10 @@ async def _stream_generate_full(req: GenerateFullRequest) -> AsyncGenerator[str,
 
     yield _sse("storyboard_ready", {"message": f"✅ {len(scenes)} scenes ready", "scenes": scenes, "auto_approve": True})
 
-    # ── Phase 5: Manim Coder + Critic ─────────────────────────────────────────
+    # ── Phase 5: Template Orchestrator + Critic ─────────────────────────────────────────
     yield _sse("status", {"message": "⚙️ Rendering scenes…", "phase": "coding"})
     tasks = [
-        asyncio.create_task(_process_single_scene_pipeline(s, output_folder, req.persona_id))
+        asyncio.create_task(_process_single_scene_pipeline(s, output_folder, req.persona_id, mode=req.mode))
         for s in scenes
     ]
     while True:
@@ -369,9 +368,8 @@ async def _stream_generate_full(req: GenerateFullRequest) -> AsyncGenerator[str,
     if not successful_codes:
         yield _sse("error", {"message": "All scenes failed to render."}); return
 
-    from agents.manim_coder import SCRIPT_HEADER_TEMPLATE
     agent_core_path = os.path.dirname(os.path.abspath(__file__))
-    combined = SCRIPT_HEADER_TEMPLATE.format(agent_core_path=agent_core_path)
+    combined = f"import sys\nsys.path.insert(0, '{agent_core_path}')\n"
     combined += "\n\n" + "\n\n".join(successful_codes)
     script_path = os.path.join(output_folder, "generated_lesson.py")
     with open(script_path, "w", encoding="utf-8") as f:
@@ -397,7 +395,7 @@ async def _stream_generate_full(req: GenerateFullRequest) -> AsyncGenerator[str,
             sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
             from video_postprod.pipeline import run_postproduction
             pp_result = await loop.run_in_executor(
-                executor, lambda: run_postproduction(output_folder, req.topic, master_path)
+                executor, lambda: run_postproduction(output_folder, req.topic, master_path, scenes, mode=req.mode)
             )
             master_path = pp_result.get("final_video", master_path)
             yield _sse("postprod_done", {"message": f"✅ Post-production done → {master_path}"})
@@ -437,7 +435,7 @@ def _designer_node(state):
     return {"script_scenes": scenes, "events": state.get("events", []) + [{"phase": "visual_designer", "data": {}, "message": "✅ Storyboard plans ready"}]}
 
 def _manim_coder_node(state):
-    classes = run_manim_coder(state["script_scenes"], state.get("persona_id", 1), state.get("render_error", ""), None if not state.get("render_error") else state.get("manim_classes"))
+    classes = run_template_orchestrator(state["script_scenes"])
     return {"manim_classes": classes, "render_error": "", "events": state.get("events", []) + [{"phase": "manim_coder", "data": {"count": len(classes)}, "message": f"✅ {len(classes)} classes"}]}
 
 def _critic_node(state):
@@ -495,7 +493,7 @@ def render_final(req: FinalRenderRequest):
         try:
             sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
             from video_postprod.pipeline import run_postproduction
-            pp = run_postproduction(req.output_folder, req.topic, result.get("master_path", ""))
+            pp = run_postproduction(req.output_folder, req.topic, result.get("master_path", ""), mode="3b1b")
             result["final_video"] = pp.get("final_video", result.get("master_path"))
         except Exception as exc:
             log.error(f"Post-production in render_final: {exc}")
