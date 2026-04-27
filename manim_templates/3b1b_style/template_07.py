@@ -1,5 +1,5 @@
 from manim import *
-from agent_core.manim_config.theme import *
+from manim_config.theme import *
 
 class SceneTemplate07_Variation(AmharicEduScene):
     def construct(self):

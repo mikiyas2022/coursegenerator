@@ -10,7 +10,7 @@ os.makedirs("manim_templates/blackboard", exist_ok=True)
 
 # --- 3B1B Templates (12 templates) ---
 t_3b1b_1 = """from manim import *
-from agent_core.manim_config.theme import *
+from manim_config.theme import *
 
 class SceneTemplate01_VectorDecomp(AmharicEduScene):
     def construct(self):
@@ -39,7 +39,7 @@ class SceneTemplate01_VectorDecomp(AmharicEduScene):
 """
 
 t_3b1b_2 = """from manim import *
-from agent_core.manim_config.theme import *
+from manim_config.theme import *
 
 class SceneTemplate02_GraphTransform(AmharicEduScene):
     def construct(self):
@@ -62,7 +62,7 @@ class SceneTemplate02_GraphTransform(AmharicEduScene):
 """
 
 t_3b1b_3 = """from manim import *
-from agent_core.manim_config.theme import *
+from manim_config.theme import *
 
 class SceneTemplate03_NumberReveal(AmharicEduScene):
     def construct(self):
@@ -81,7 +81,7 @@ class SceneTemplate03_NumberReveal(AmharicEduScene):
 """
 
 t_3b1b_4 = """from manim import *
-from agent_core.manim_config.theme import *
+from manim_config.theme import *
 
 class SceneTemplate04_GeometricProof(AmharicEduScene):
     def construct(self):
@@ -106,7 +106,7 @@ class SceneTemplate04_GeometricProof(AmharicEduScene):
 """
 
 t_3b1b_5 = """from manim import *
-from agent_core.manim_config.theme import *
+from manim_config.theme import *
 
 class SceneTemplate05_PlayfulExplosion(AmharicEduScene):
     def construct(self):
@@ -133,7 +133,7 @@ class SceneTemplate05_PlayfulExplosion(AmharicEduScene):
 """
 
 t_3b1b_6 = """from manim import *
-from agent_core.manim_config.theme import *
+from manim_config.theme import *
 
 class SceneTemplate06_CameraChoreography(AmharicEduScene):
     def construct(self):
@@ -169,7 +169,7 @@ for i, content in enumerate(templates_3b1b, 1):
 
 # --- Blackboard Templates (10 templates) ---
 t_bb_1 = """from manim import *
-from agent_core.manim_config.blackboard_theme import *
+from manim_config.blackboard_theme import *
 
 class Blackboard_01_StrokeByStroke(BlackboardScene):
     def construct(self):
@@ -187,7 +187,7 @@ class Blackboard_01_StrokeByStroke(BlackboardScene):
 """
 
 t_bb_2 = """from manim import *
-from agent_core.manim_config.blackboard_theme import *
+from manim_config.blackboard_theme import *
 
 class Blackboard_02_StepByStepSolving(BlackboardScene):
     def construct(self):
@@ -207,7 +207,7 @@ class Blackboard_02_StepByStepSolving(BlackboardScene):
 """
 
 t_bb_3 = """from manim import *
-from agent_core.manim_config.blackboard_theme import *
+from manim_config.blackboard_theme import *
 
 class Blackboard_03_DrawDiagram(BlackboardScene):
     def construct(self):
@@ -228,7 +228,7 @@ class Blackboard_03_DrawDiagram(BlackboardScene):
 """
 
 t_bb_4 = """from manim import *
-from agent_core.manim_config.blackboard_theme import *
+from manim_config.blackboard_theme import *
 
 class Blackboard_04_EraseAndHighlight(BlackboardScene):
     def construct(self):
@@ -249,7 +249,7 @@ class Blackboard_04_EraseAndHighlight(BlackboardScene):
 """
 
 t_bb_5 = """from manim import *
-from agent_core.manim_config.blackboard_theme import *
+from manim_config.blackboard_theme import *
 
 class Blackboard_05_PanZoom(BlackboardScene, MovingCameraScene):
     def construct(self):
@@ -277,7 +277,7 @@ class Blackboard_05_PanZoom(BlackboardScene, MovingCameraScene):
 """
 
 t_bb_6 = """from manim import *
-from agent_core.manim_config.blackboard_theme import *
+from manim_config.blackboard_theme import *
 
 class Blackboard_06_FinalAnswerBox(BlackboardScene):
     def construct(self):

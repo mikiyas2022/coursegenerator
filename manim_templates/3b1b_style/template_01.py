@@ -1,5 +1,5 @@
 from manim import *
-from agent_core.manim_config.theme import *
+from manim_config.theme import *
 
 class SceneTemplate01_VectorDecomp(AmharicEduScene):
     def construct(self):

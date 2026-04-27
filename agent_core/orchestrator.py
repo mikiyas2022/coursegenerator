@@ -289,8 +289,8 @@ async def _stream_render(req: RenderScenesRequest) -> AsyncGenerator[str, None]:
     failed = len(tasks) - len(successful_codes)
 
     if successful_codes:
-        agent_core_path = os.path.dirname(os.path.abspath(__file__))
-        combined = f"import sys\nsys.path.insert(0, '{agent_core_path}')\n"
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        combined = f"import sys\nsys.path.insert(0, '{project_root}')\n"
         combined += "\n\n" + "\n\n".join(successful_codes)
         script_path = os.path.join(output_folder, "generated_lesson.py")
         with open(script_path, "w", encoding="utf-8") as f:
@@ -368,8 +368,8 @@ async def _stream_generate_full(req: GenerateFullRequest) -> AsyncGenerator[str,
     if not successful_codes:
         yield _sse("error", {"message": "All scenes failed to render."}); return
 
-    agent_core_path = os.path.dirname(os.path.abspath(__file__))
-    combined = f"import sys\nsys.path.insert(0, '{agent_core_path}')\n"
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    combined = f"import sys\nsys.path.insert(0, '{project_root}')\n"
     combined += "\n\n" + "\n\n".join(successful_codes)
     script_path = os.path.join(output_folder, "generated_lesson.py")
     with open(script_path, "w", encoding="utf-8") as f:

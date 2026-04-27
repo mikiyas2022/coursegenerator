@@ -1,5 +1,5 @@
 from manim import *
-from agent_core.manim_config.blackboard_theme import *
+from manim_config.blackboard_theme import *
 
 class Blackboard_01_StrokeByStroke(BlackboardScene):
     def construct(self):
