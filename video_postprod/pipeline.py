@@ -21,7 +21,7 @@ from pathlib import Path
 # ── Logger ────────────────────────────────────────────────────────────────────
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "agent_core"))
 try:
-    from logger import get_logger
+    from logger import get_logger  # type: ignore
     log = get_logger("postprod")
 except ImportError:
     import logging

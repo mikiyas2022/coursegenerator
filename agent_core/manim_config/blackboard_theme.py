@@ -4,7 +4,7 @@ agent_core/manim_config/blackboard_theme.py — Q&A Blackboard Theming Engine
 Realistic blackboard simulation for step-by-step EUEE exam solutions.
 """
 
-from manim import *
+from manim import Scene, Text, Mobject, Write, linear
 
 # Blackboard Colors
 BB_BG_COLOR = "#1A2518"        # Dark green/black texture
