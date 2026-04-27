@@ -35,6 +35,7 @@ type UIView =
   | 'planning'           // Researcher + Scriptwriter running
   | 'storyboard'         // Editable storyboard cards
   | 'rendering'          // Manim Coder + Critic running
+  | 'full_auto'          // One-shot full automation
   | 'preview_ready'
   | 'complete'
   | 'error';
@@ -90,12 +91,14 @@ export default function StudioPage() {
   const [renderEvents,  setRenderEvents]  = useState<StreamEvent[]>([]);
   const [previewPath,   setPreviewPath]   = useState('');
   const [outputFolder,  setOutputFolder]  = useState('');
+  const [masterPath,    setMasterPath]    = useState('');
   const [errorMsg,      setErrorMsg]      = useState('');
   const [statusMsg,     setStatusMsg]     = useState('');
   const [planningLogs,  setPlanningLogs]  = useState<{msg: string, time: string}[]>([]);
   const [healAttempt,   setHealAttempt]   = useState(0);
   const [visualFeedback,setVisualFeedback]= useState('');
   const [showSource,    setShowSource]    = useState(false);
+  const [fullAutoLogs,  setFullAutoLogs]  = useState<{msg: string, phase: string, time: string}[]>([]);
 
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -174,6 +177,67 @@ export default function StudioPage() {
               setView('error');
             }
           } catch { /* ignore bad lines */ }
+        }
+      }
+    } catch (err: unknown) {
+      setErrorMsg(err instanceof Error ? err.message : String(err));
+      setView('error');
+    }
+  }, [form]);
+
+  // ── Full Automation (one-shot) ────────────────────────────────────────────
+  const generateFullVideo = useCallback(async () => {
+    if (!form.topic.trim()) return;
+    setView('full_auto');
+    setFullAutoLogs([{ msg: '🚀 Starting full 3B1B pipeline…', phase: 'init', time: new Date().toLocaleTimeString() }]);
+    setMasterPath('');
+    setErrorMsg('');
+
+    const addLog = (msg: string, phase: string) =>
+      setFullAutoLogs(prev => [...prev, { msg, phase, time: new Date().toLocaleTimeString() }]);
+
+    try {
+      const res = await fetch('/api/generate-full', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          topic:           form.topic,
+          audience:        form.audience,
+          style:           form.style,
+          metaphor:        form.metaphor,
+          source_material: form.sourceMaterial,
+          persona_id:      form.personaId,
+          orientation:     form.orientation,
+          run_postprod:    true,
+        }),
+      });
+      if (!res.body) throw new Error('No stream');
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split('\n');
+        buf = lines.pop() ?? '';
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          try {
+            const ev = JSON.parse(line.slice(6)) as StreamEvent;
+            const msg = (ev.payload.message as string) || ev.type;
+            const phase = (ev.payload.phase as string) || ev.type;
+            if (ev.type !== 'ping') addLog(msg, phase);
+            if (ev.type === 'complete') {
+              setMasterPath((ev.payload.master_path as string) || (ev.payload.output_folder as string) || '');
+              setOutputFolder((ev.payload.output_folder as string) || '');
+              setView('complete');
+            }
+            if (ev.type === 'error') {
+              setErrorMsg(msg);
+              setView('error');
+            }
+          } catch { /* ignore */ }
         }
       }
     } catch (err: unknown) {
@@ -399,10 +463,19 @@ export default function StudioPage() {
               ))}
             </div>
 
+            {/* One-shot full automation button */}
+            <button type="button" disabled={!form.topic.trim()}
+              onClick={generateFullVideo}
+              className="w-full py-4 rounded-2xl bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-400 hover:to-orange-400 font-black text-black text-sm uppercase tracking-widest transition-all shadow-2xl shadow-yellow-500/30 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+              ⚡ Generate Full 3B1B Video (Auto)
+            </button>
+            <p className="text-center text-[10px] text-gray-600">↑ Zero human intervention — full pipeline runs automatically</p>
+
+            {/* Manual storyboard flow */}
             <button type="button" disabled={!form.topic.trim()}
               onClick={generateStoryboard}
-              className="w-full py-4 rounded-2xl bg-gradient-to-r from-blue-600 to-violet-600 hover:from-blue-500 hover:to-violet-500 font-black text-white text-sm uppercase tracking-widest transition-all shadow-2xl shadow-blue-500/20 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2">
-              🤖 Generate Storyboard with {persona.icon} {persona.name}
+              className="w-full py-3 rounded-2xl bg-gradient-to-r from-blue-600/60 to-violet-600/60 hover:from-blue-500/80 hover:to-violet-500/80 font-bold text-white text-sm uppercase tracking-widest transition-all border border-blue-500/30 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+              🤖 Generate Storyboard (Manual Review)
             </button>
           </div>
         )}
@@ -594,9 +667,9 @@ export default function StudioPage() {
 
             {/* Complete */}
             {view === 'complete' && outputFolder && (
-              <div className="rounded-2xl border border-blue-500/20 bg-blue-950/20 p-5">
+              <div className="rounded-2xl border border-blue-500/20 bg-blue-950/20 p-5 space-y-3">
                 <p className="font-bold text-blue-300">🏆 Production complete!</p>
-                <p className="text-[11px] font-mono text-gray-600 mt-2 break-all">{outputFolder}</p>
+                <p className="text-[11px] font-mono text-gray-600 break-all">{masterPath || outputFolder}</p>
               </div>
             )}
 
@@ -609,6 +682,53 @@ export default function StudioPage() {
             )}
 
             <div ref={bottomRef} />
+          </div>
+        )}
+
+        {/* ════ VIEW: FULL AUTO ════════════════════════════════════════ */}
+        {view === 'full_auto' && (
+          <div className="max-w-2xl mx-auto space-y-6">
+            <div className="text-center space-y-3">
+              <div className="w-20 h-20 mx-auto rounded-full bg-gradient-to-br from-yellow-500 to-orange-500 flex items-center justify-center text-3xl shadow-2xl shadow-yellow-500/30 animate-pulse">
+                ⚡
+              </div>
+              <h2 className="text-2xl font-black text-white">3B1B Mode Active</h2>
+              <p className="text-gray-400 text-sm">Full automation running — sit back and watch the magic happen.</p>
+            </div>
+
+            <div className="rounded-2xl border border-yellow-500/20 bg-yellow-950/10 overflow-hidden">
+              <div className="px-4 py-2 border-b border-yellow-500/10 bg-yellow-500/5 flex items-center justify-between">
+                <span className="text-[10px] font-bold text-yellow-400/70 uppercase tracking-widest">Pipeline Log</span>
+                <span className="text-[9px] text-gray-600">{fullAutoLogs.length} events</span>
+              </div>
+              <div className="p-4 max-h-[400px] overflow-y-auto space-y-2">
+                {fullAutoLogs.map((log, i) => {
+                  const isLast = i === fullAutoLogs.length - 1;
+                  const phaseColors: Record<string, string> = {
+                    researcher: 'text-blue-400', scriptwriter: 'text-violet-400',
+                    visual_designer: 'text-pink-400', math_verifier: 'text-yellow-400',
+                    coding: 'text-teal-400', final_render: 'text-orange-400',
+                    postprod: 'text-emerald-400', complete: 'text-emerald-300',
+                    error: 'text-red-400', init: 'text-gray-400',
+                  };
+                  const color = phaseColors[log.phase] || 'text-gray-400';
+                  return (
+                    <div key={i} className={`flex items-start gap-3 text-sm ${color} ${isLast ? 'font-bold' : 'opacity-70'}`}
+                         style={{ animation: 'fadeSlideIn 0.2s ease-out' }}>
+                      <span className="mt-0.5 flex-shrink-0">{isLast ? '▶' : '✓'}</span>
+                      <span className="flex-1">{log.msg}</span>
+                      <span className="text-[9px] text-gray-700 font-mono flex-shrink-0">{log.time}</span>
+                    </div>
+                  );
+                })}
+                <div ref={bottomRef} />
+              </div>
+            </div>
+
+            <button onClick={() => { setView('input'); setFullAutoLogs([]); }}
+              className="w-full py-3 rounded-xl border border-white/10 text-gray-500 hover:text-gray-300 text-sm transition">
+              ← Cancel / Start Over
+            </button>
           </div>
         )}
 

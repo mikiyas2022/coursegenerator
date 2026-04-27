@@ -26,20 +26,32 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-SYSTEM_PROMPT = """You are an educational content designer. Break a STEM topic into 4-5 structured scene beats.
+SYSTEM_PROMPT = """You are a 3Blue1Brown-style educational content architect. Design a 4-6 scene visual learning journey.
 Output ONLY a valid JSON array, no markdown, no explanation.
+
+CRITICAL: Every scene must have SPECIFIC, ANIMATABLE visual instructions and CONCRETE examples with REAL NUMBERS.
 
 JSON schema per scene:
 {
   "scene_name": "Scene1_Intro",
-  "concept": "Short concept name",
-  "explanation": "What to teach in this scene, including key maths/physics steps",
-  "visual": "Detailed Manim animation request: what shapes, graphs, vectors, or diagrams to draw and animate",
-  "narrative_hook": "How to make this scene engaging",
-  "latex_formulas": ["F = ma"]
+  "concept": "Short concept name (e.g., 'Projectile Motion')",
+  "explanation": "DETAILED explanation: include step-by-step math, specific formulas, worked calculations with actual numbers (e.g., 'A ball launched at 20 m/s at 45 degrees')",
+  "visual": "SPECIFIC Manim animation: describe exact objects to draw (e.g., 'Draw a coordinate plane with x_range=[0,100] and y_range=[0,30]. Animate a dot tracing a parabolic path y = 20*sin(45)*t - 0.5*9.8*t^2. Show velocity vector decomposition at t=0, t=1, t=2')",
+  "narrative_hook": "An engaging opening question or surprising fact",
+  "latex_formulas": ["v = u + at", "s = ut + 0.5at^2"]
 }
 
-Must include: one real-world analogy scene and one worked example scene with numbers."""
+SCENE TYPES (must include at least one of each):
+1. INTRO: Hook the viewer with a surprising question or real-world scenario
+2. ANALOGY: Use a vivid, visual analogy (something that can be ANIMATED — not abstract)
+3. WORKED EXAMPLE: Walk through a COMPLETE calculation with SPECIFIC numbers
+4. VISUAL INSIGHT: Show a graph, diagram, or animation that reveals the "aha!" moment
+5. SUMMARY: Connect everything together
+
+RULES:
+- The 'visual' field must describe EXACT shapes, coordinates, colors, and animations
+- The 'explanation' field must include REAL NUMBERS and step-by-step math
+- Each scene must teach something DIFFERENT (no redundancy)"""
 
 def filter_source_material(topic: str, source_material: str) -> str:
     """Uses FAISS local RAG to extract only the 4 most relevant chunks to the topic."""

@@ -1,0 +1,90 @@
+version: '3.9'
+
+services:
+  # ── Local LLM inference ──────────────────────────────────────────────────
+  ollama:
+    image: ollama/ollama:latest
+    container_name: stem_ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      - OLLAMA_KEEP_ALIVE=24h
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # ── Amharic TTS server ───────────────────────────────────────────────────
+  tts:
+    build:
+      context: .
+      dockerfile: Dockerfile.tts
+    container_name: stem_tts
+    restart: unless-stopped
+    ports:
+      - "8102:8102"
+    volumes:
+      - ./video_compiler/models:/app/video_compiler/models
+      - ./video_compiler/media:/app/video_compiler/media
+    environment:
+      - TTS_PORT=8102
+    depends_on:
+      ollama:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8102/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # ── Main orchestrator (Manim + LangGraph) ────────────────────────────────
+  orchestrator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: stem_orchestrator
+    restart: unless-stopped
+    ports:
+      - "8205:8205"
+    volumes:
+      - ./Local_Video_Output:/app/Local_Video_Output
+      - ./logs:/app/logs
+      - huggingface_cache:/tmp/huggingface_cache
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434/v1
+      - TTS_SERVER_URL=http://tts:8102
+      - ORCHESTRATOR_PORT=8205
+      - AUTO_APPROVE=true
+      - RESEARCHER_MODEL=llama3.1:latest
+      - SCRIPTWRITER_MODEL=llama3.1:latest
+      - VISUAL_DESIGNER_MODEL=llama3.1:latest
+      - MANIM_CODER_MODEL=qwen3-coder:30b
+      - CRITIC_MODEL=qwen3:8b
+    depends_on:
+      ollama:
+        condition: service_healthy
+      tts:
+        condition: service_healthy
+
+  # ── Next.js Web UI ────────────────────────────────────────────────────────
+  webapp:
+    build:
+      context: ./web_app
+      dockerfile: Dockerfile.webapp
+    container_name: stem_webapp
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - ORCHESTRATOR_URL=http://orchestrator:8205
+      - NODE_ENV=production
+    depends_on:
+      - orchestrator
+
+volumes:
+  ollama_data:
+  huggingface_cache:
