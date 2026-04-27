@@ -1,5 +1,5 @@
 from manim import *
-from manim_config.blackboard_theme import *
+from manim_config.theme import *
 
 class Blackboard_05_PanZoom(BlackboardScene, MovingCameraScene):
     def construct(self):

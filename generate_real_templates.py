@@ -169,7 +169,7 @@ for i, content in enumerate(templates_3b1b, 1):
 
 # --- Blackboard Templates (10 templates) ---
 t_bb_1 = """from manim import *
-from manim_config.blackboard_theme import *
+from manim_config.theme import *
 
 class Blackboard_01_StrokeByStroke(BlackboardScene):
     def construct(self):
@@ -187,7 +187,7 @@ class Blackboard_01_StrokeByStroke(BlackboardScene):
 """
 
 t_bb_2 = """from manim import *
-from manim_config.blackboard_theme import *
+from manim_config.theme import *
 
 class Blackboard_02_StepByStepSolving(BlackboardScene):
     def construct(self):
@@ -207,7 +207,7 @@ class Blackboard_02_StepByStepSolving(BlackboardScene):
 """
 
 t_bb_3 = """from manim import *
-from manim_config.blackboard_theme import *
+from manim_config.theme import *
 
 class Blackboard_03_DrawDiagram(BlackboardScene):
     def construct(self):
@@ -228,7 +228,7 @@ class Blackboard_03_DrawDiagram(BlackboardScene):
 """
 
 t_bb_4 = """from manim import *
-from manim_config.blackboard_theme import *
+from manim_config.theme import *
 
 class Blackboard_04_EraseAndHighlight(BlackboardScene):
     def construct(self):
@@ -249,7 +249,7 @@ class Blackboard_04_EraseAndHighlight(BlackboardScene):
 """
 
 t_bb_5 = """from manim import *
-from manim_config.blackboard_theme import *
+from manim_config.theme import *
 
 class Blackboard_05_PanZoom(BlackboardScene, MovingCameraScene):
     def construct(self):
@@ -277,7 +277,7 @@ class Blackboard_05_PanZoom(BlackboardScene, MovingCameraScene):
 """
 
 t_bb_6 = """from manim import *
-from manim_config.blackboard_theme import *
+from manim_config.theme import *
 
 class Blackboard_06_FinalAnswerBox(BlackboardScene):
     def construct(self):

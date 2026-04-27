@@ -413,7 +413,7 @@ export default function StudioPage() {
                   activeTab === 'blackboard' ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-lg shadow-emerald-500/20' : 'text-gray-500 hover:text-gray-300'
                 }`}
               >
-                ✍️ Blackboard Q&A Solutions
+                ✍️ Blackboard Q&A Solutions (EUEE)
               </button>
             </div>
 
