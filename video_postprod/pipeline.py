@@ -181,16 +181,22 @@ def run_postproduction(
     """
     Run the full post-production pipeline on a rendered Masterpiece.mp4.
 
-    Steps:
+    Steps (3B1B mode):
       1. Normalize audio
       2. Burn in Amharic subtitles (if scenes provided)
       3. Apply warm color grade
       4. Add intro/outro title cards
       5. Output {Topic}_3B1B_Style.mp4
 
+    Steps (Blackboard mode):
+      1. Strip all audio (force silent)
+      2. Apply blackboard color grade
+      3. Output {Topic}_Blackboard_Solution.mp4
+
     Returns dict with 'final_video' path and 'steps_completed'.
     """
     folder = Path(output_folder)
+    is_blackboard = (mode == "blackboard")
 
     # Find master video
     if master_path and os.path.exists(master_path):
@@ -201,7 +207,7 @@ def run_postproduction(
         log.error(f"Source video not found: {source}")
         return {"success": False, "error": "Source video not found", "final_video": source}
 
-    log.info(f"Post-production starting: {source} ({os.path.getsize(source) / 1e6:.1f} MB)")
+    log.info(f"Post-production starting ({mode}): {source} ({os.path.getsize(source) / 1e6:.1f} MB)")
 
     steps_completed = []
     current = source
@@ -212,58 +218,84 @@ def run_postproduction(
         tmp_files.append(p)
         return p
 
-    # ── Step 1: Audio normalization ───────────────────────────────────────────
-    normed = _tmp("01_normed")
-    if normalize_audio(current, normed):
-        current = normed
-        steps_completed.append("audio_normalization")
-        log.info("✓ Audio normalized")
-    else:
-        log.warning("⚠ Audio normalization skipped")
-
-    # ── Step 2: Subtitle burn-in ──────────────────────────────────────────────
-    if scenes:
-        from video_postprod.subtitles import generate_srt
-        am_srt = str(folder / "subtitles_am.srt")
-        generate_srt(scenes, am_srt)
-        subbed = _tmp("02_subbed")
-        if burn_subtitles(current, am_srt, subbed):
-            current = subbed
-            steps_completed.append("subtitle_burn")
-            log.info("✓ Subtitles burned in")
-
-            # Also generate English .srt alongside (not burned in)
-            try:
-                from video_postprod.subtitles import generate_english_srt
-                en_srt = str(folder / "subtitles_en.srt")
-                generate_english_srt(scenes, en_srt)
-                steps_completed.append("english_srt")
-            except Exception as exc:
-                log.warning(f"English SRT: {exc}")
+    if is_blackboard:
+        # ── BLACKBOARD MODE: Strip audio completely ──────────────────────
+        stripped = _tmp("00_silent")
+        ok, err = _run_ffmpeg([
+            "-i", current,
+            "-an",              # Remove all audio streams
+            "-c:v", "copy",     # Keep video as-is
+            stripped,
+        ])
+        if ok:
+            current = stripped
+            steps_completed.append("audio_stripped")
+            log.info("✓ Audio stripped (silent blackboard)")
         else:
-            log.warning("⚠ Subtitle burn skipped")
+            log.warning(f"⚠ Audio strip failed: {err[:200]}")
 
-    # ── Step 3: Color grade ───────────────────────────────────────────────────
-    graded = _tmp("03_graded")
-    if color_grade(current, graded):
-        current = graded
-        steps_completed.append("color_grade")
-        log.info("✓ Color graded")
+        # Subtle blackboard color grade (darken + contrast)
+        graded = _tmp("01_bb_graded")
+        if color_grade(current, graded):
+            current = graded
+            steps_completed.append("color_grade")
+            log.info("✓ Color graded (blackboard)")
+
     else:
-        log.warning("⚠ Color grade skipped")
+        # ── 3B1B MODE: Full post-production ──────────────────────────────
 
-    # ── Step 4: Title cards ───────────────────────────────────────────────────
-    titled = _tmp("04_titled")
-    if add_title_cards(current, titled, topic):
-        current = titled
-        steps_completed.append("title_cards")
-        log.info("✓ Title cards added")
-    else:
-        log.warning("⚠ Title cards skipped")
+        # Step 1: Audio normalization
+        normed = _tmp("01_normed")
+        if normalize_audio(current, normed):
+            current = normed
+            steps_completed.append("audio_normalization")
+            log.info("✓ Audio normalized")
+        else:
+            log.warning("⚠ Audio normalization skipped")
 
-    # ── Final output ──────────────────────────────────────────────────────────
+        # Step 2: Subtitle burn-in
+        if scenes:
+            from video_postprod.subtitles import generate_srt
+            am_srt = str(folder / "subtitles_am.srt")
+            generate_srt(scenes, am_srt)
+            subbed = _tmp("02_subbed")
+            if burn_subtitles(current, am_srt, subbed):
+                current = subbed
+                steps_completed.append("subtitle_burn")
+                log.info("✓ Subtitles burned in")
+
+                # Also generate English .srt alongside (not burned in)
+                try:
+                    from video_postprod.subtitles import generate_english_srt
+                    en_srt = str(folder / "subtitles_en.srt")
+                    generate_english_srt(scenes, en_srt)
+                    steps_completed.append("english_srt")
+                except Exception as exc:
+                    log.warning(f"English SRT: {exc}")
+            else:
+                log.warning("⚠ Subtitle burn skipped")
+
+        # Step 3: Color grade
+        graded = _tmp("03_graded")
+        if color_grade(current, graded):
+            current = graded
+            steps_completed.append("color_grade")
+            log.info("✓ Color graded")
+        else:
+            log.warning("⚠ Color grade skipped")
+
+        # Step 4: Title cards
+        titled = _tmp("04_titled")
+        if add_title_cards(current, titled, topic):
+            current = titled
+            steps_completed.append("title_cards")
+            log.info("✓ Title cards added")
+        else:
+            log.warning("⚠ Title cards skipped")
+
+    # ── Final output ──────────────────────────────────────────────────────
     safe_name = _safe_topic_name(topic)
-    if mode == "blackboard":
+    if is_blackboard:
         final_path = str(folder / f"{safe_name}_Blackboard_Solution.mp4")
     else:
         final_path = str(folder / f"{safe_name}_3B1B_Style.mp4")

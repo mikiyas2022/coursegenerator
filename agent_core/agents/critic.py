@@ -19,17 +19,22 @@ from config import (
     MAX_CRITIC_RETRIES, MAX_VISUAL_RETRIES,
     get_vl_llm,
 )
-from agents.manim_coder import SCRIPT_HEADER_TEMPLATE
+from agents.manim_coder import SCRIPT_HEADER_TEMPLATE, BLACKBOARD_HEADER_TEMPLATE
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Build the full script with dynamic agent_core path injected
+# Build the full script with dynamic path injected
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _build_script(code_classes: list[str]) -> str:
-    """Prepend the dynamic header (with theme path) to all scene classes."""
+def _build_script(code_classes: list[str], mode: str = "3b1b") -> str:
+    """Prepend the dynamic header to all scene classes.
+    Uses BLACKBOARD_HEADER_TEMPLATE for blackboard mode (no TTS).
+    """
     project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    header = SCRIPT_HEADER_TEMPLATE.format(project_root=project_root)
+    if mode == "blackboard":
+        header = BLACKBOARD_HEADER_TEMPLATE.format(project_root=project_root)
+    else:
+        header = SCRIPT_HEADER_TEMPLATE.format(project_root=project_root)
     return header + "\n\n" + "\n\n".join(code_classes)
 
 
@@ -43,7 +48,7 @@ def _extract_scene_names(code: str) -> list[str]:
     """Extract class names that inherit from scene-like bases."""
     all_classes = re.findall(r"^class\s+(\w+)\s*\([^)]*\):", code, re.MULTILINE)
     # Filter out helper classes that aren't scenes
-    skip = {"EdgeTTSService", "LocalMMSService", "AmharicEduScene"}
+    skip = {"EdgeTTSService", "LocalMMSService", "AmharicEduScene", "BlackboardScene", "EdgeTTSAmharicService"}
     return [c for c in all_classes if c not in skip]
 
 
@@ -220,6 +225,7 @@ def run_critic(
     code_classes: list[str],
     output_folder: str,
     retry_count: int = 0,
+    mode: str = "3b1b",
 ) -> dict:
     """
     Stage 1 (syntax) + Stage 2 (visual) critique for ALL scenes.
@@ -231,7 +237,7 @@ def run_critic(
     """
     os.makedirs(output_folder, exist_ok=True)
 
-    full_script = _build_script(code_classes)
+    full_script = _build_script(code_classes, mode=mode)
     full_script = _sanitize_code(full_script)
     scene_names = _extract_scene_names(full_script)
     if not scene_names:

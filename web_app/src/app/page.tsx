@@ -218,6 +218,12 @@ export default function StudioPage() {
           orientation:     form.orientation,
           run_postprod:    true,
           mode:            modeArg,
+          // Blackboard-specific fields
+          question:        modeArg === 'blackboard' ? form.topic : '',
+          correct_answer:  modeArg === 'blackboard' ? (form.correctAnswer || '') : '',
+          subject_grade:   modeArg === 'blackboard' ? (form.metaphor || '') : '',
+          silent:          modeArg === 'blackboard',
+          tts_enabled:     modeArg !== 'blackboard',
         }),
       });
       if (!res.body) throw new Error('No stream');
