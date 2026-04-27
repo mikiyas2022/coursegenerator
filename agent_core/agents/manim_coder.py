@@ -52,8 +52,8 @@ if _texmf_candidates:
     os.environ["TEXMFMAIN"] = _td
 
 # ── Theme & Manim ─────────────────────────────────────────────────────────────
-sys.path.insert(0, "{agent_core_path}")
-from theme import *          # AmharicEduScene, BG_COLOR, TEAL_ACCENT, STAR_YELLOW, ...
+sys.path.insert(0, "{project_root}")
+from manim_config.theme import *          # AmharicEduScene, BG_COLOR, TEAL_ACCENT, STAR_YELLOW, ...
 from manim import *
 
 # === CONDITIONAL LATEX ===

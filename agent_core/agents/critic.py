@@ -28,8 +28,8 @@ from agents.manim_coder import SCRIPT_HEADER_TEMPLATE
 
 def _build_script(code_classes: list[str]) -> str:
     """Prepend the dynamic header (with theme path) to all scene classes."""
-    agent_core_path = os.path.dirname(os.path.dirname(__file__))
-    header = SCRIPT_HEADER_TEMPLATE.format(agent_core_path=agent_core_path)
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    header = SCRIPT_HEADER_TEMPLATE.format(project_root=project_root)
     return header + "\n\n" + "\n\n".join(code_classes)
 
 
