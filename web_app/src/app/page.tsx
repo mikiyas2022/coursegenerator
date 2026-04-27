@@ -80,6 +80,7 @@ const SCENE_COLORS = ['#1E3A8A','#065F46','#6D28D9','#92400E','#1E40AF','#064E3B
 
 export default function StudioPage() {
   const [mounted,       setMounted]       = useState(false);
+  const [activeTab,     setActiveTab]     = useState<'3b1b' | 'blackboard'>('3b1b');
   const [view,          setView]          = useState<UIView>('input');
   const [form,          setForm]          = useState<FormState>({
     topic: '', audience: 'High School (Exploratory)',
@@ -396,16 +397,38 @@ export default function StudioPage() {
               <p className="text-gray-500 text-sm mt-2">The AI will research, script, and animate your topic automatically.</p>
             </div>
 
-            <Card>
-              <Label>🎯 Topic / Concept</Label>
-              <textarea
-                rows={3}
-                placeholder="e.g. The Pythagorean Theorem, Newton's Laws of Motion, How DNA Replication Works…"
-                value={form.topic}
-                onChange={e => setF('topic', e.target.value)}
-                className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-600 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition"
-              />
-            </Card>
+            {/* TABS */}
+            <div className="flex bg-black/40 p-1 rounded-xl border border-white/10 mb-8">
+              <button
+                onClick={() => { setActiveTab('3b1b'); setF('mode', '3b1b'); }}
+                className={`flex-1 py-3 text-sm font-bold rounded-lg transition-all ${
+                  activeTab === '3b1b' ? 'bg-gradient-to-r from-blue-600 to-violet-600 text-white shadow-lg shadow-blue-500/20' : 'text-gray-500 hover:text-gray-300'
+                }`}
+              >
+                🎬 3B1B Explanatory Videos
+              </button>
+              <button
+                onClick={() => { setActiveTab('blackboard'); setF('mode', 'blackboard'); }}
+                className={`flex-1 py-3 text-sm font-bold rounded-lg transition-all ${
+                  activeTab === 'blackboard' ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-lg shadow-emerald-500/20' : 'text-gray-500 hover:text-gray-300'
+                }`}
+              >
+                ✍️ Blackboard Q&A Solutions
+              </button>
+            </div>
+
+            {activeTab === '3b1b' ? (
+              <div className="space-y-5 animate-fade-in">
+                <Card>
+                  <Label>🎯 Topic / Concept</Label>
+                  <textarea
+                    rows={3}
+                    placeholder="e.g. The Pythagorean Theorem, Newton's Laws of Motion…"
+                    value={form.topic}
+                    onChange={e => setF('topic', e.target.value)}
+                    className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-600 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition"
+                  />
+                </Card>
 
             <div className="grid grid-cols-2 gap-4">
               <Card>
@@ -431,26 +454,6 @@ export default function StudioPage() {
                 onChange={e => setF('metaphor', e.target.value)}
                 className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition"
               />
-            </Card>
-
-            <Card>
-              <Label>✅ Correct Answer (Optional - Blackboard Mode)</Label>
-              <input
-                type="text"
-                placeholder="e.g. '42 m/s^2'"
-                value={form.correctAnswer || ''}
-                onChange={e => setF('correctAnswer', e.target.value)}
-                className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 transition"
-              />
-              <label className="flex items-center gap-2 mt-3 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={form.showFinalAnswer}
-                  onChange={e => setF('showFinalAnswer', e.target.checked)}
-                  className="w-4 h-4 rounded border-white/10 bg-black/40 text-emerald-500 focus:ring-emerald-500/50"
-                />
-                <span className="text-sm text-gray-400">Show final answer at the end</span>
-              </label>
             </Card>
 
             <Card>
@@ -491,28 +494,74 @@ export default function StudioPage() {
               ))}
             </div>
 
-            {/* One-shot full automation button */}
-            <div className="grid grid-cols-2 gap-4">
+              {/* One-shot full automation button */}
               <button type="button" disabled={!form.topic.trim()}
                 onClick={() => generateFullVideo('3b1b')}
-                className="w-full py-4 rounded-2xl bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-400 hover:to-orange-400 font-black text-black text-xs uppercase tracking-widest transition-all shadow-xl shadow-yellow-500/30 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2">
-                ⚡ 3B1B Mode
+                className="w-full py-4 rounded-2xl bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-400 hover:to-orange-400 font-black text-black text-sm uppercase tracking-widest transition-all shadow-xl shadow-yellow-500/30 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+                ⚡ Generate 3B1B Video (Auto)
               </button>
               
-              <button type="button" disabled={!form.topic.trim()}
-                onClick={() => generateFullVideo('blackboard')}
-                className="w-full py-4 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 font-black text-white text-xs uppercase tracking-widest transition-all shadow-xl shadow-emerald-500/30 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2">
-                ✍️ Blackboard Q&A
-              </button>
-            </div>
-            <p className="text-center text-[10px] text-gray-600">↑ Zero human intervention — full pipeline runs automatically</p>
+              <p className="text-center text-[10px] text-gray-600">↑ Zero human intervention — full pipeline runs automatically</p>
 
-            {/* Manual storyboard flow */}
-            <button type="button" disabled={!form.topic.trim()}
-              onClick={generateStoryboard}
-              className="w-full py-3 rounded-2xl bg-gradient-to-r from-blue-600/60 to-violet-600/60 hover:from-blue-500/80 hover:to-violet-500/80 font-bold text-white text-sm uppercase tracking-widest transition-all border border-blue-500/30 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2">
-              🤖 Generate Storyboard (Manual Review)
-            </button>
+              {/* Manual storyboard flow */}
+              <button type="button" disabled={!form.topic.trim()}
+                onClick={generateStoryboard}
+                className="w-full py-3 rounded-2xl bg-gradient-to-r from-blue-600/60 to-violet-600/60 hover:from-blue-500/80 hover:to-violet-500/80 font-bold text-white text-sm uppercase tracking-widest transition-all border border-blue-500/30 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+                🤖 Generate Storyboard (Manual Review)
+              </button>
+              </div>
+            ) : (
+              <div className="space-y-5 animate-fade-in">
+                <Card>
+                  <Label>📝 Exam Question (Amharic + LaTeX)</Label>
+                  <textarea
+                    rows={4}
+                    placeholder="e.g. Physics Grade 12 EUEE 2025: A 10kg block slides..."
+                    value={form.topic}
+                    onChange={e => setF('topic', e.target.value)}
+                    className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-600 resize-none focus:outline-none focus:ring-2 focus:ring-emerald-500/50 transition"
+                  />
+                </Card>
+
+                <Card>
+                  <Label>✅ Optional Final Answer</Label>
+                  <input
+                    type="text"
+                    placeholder="e.g. '42 m/s^2'"
+                    value={form.correctAnswer || ''}
+                    onChange={e => setF('correctAnswer', e.target.value)}
+                    className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 transition"
+                  />
+                  <label className="flex items-center gap-2 mt-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={form.showFinalAnswer}
+                      onChange={e => setF('showFinalAnswer', e.target.checked)}
+                      className="w-4 h-4 rounded border-white/10 bg-black/40 text-emerald-500 focus:ring-emerald-500/50"
+                    />
+                    <span className="text-sm text-gray-400">Show final answer at the end</span>
+                  </label>
+                </Card>
+
+                <Card>
+                  <Label>📚 Subject & Grade (Optional)</Label>
+                  <input
+                    type="text"
+                    placeholder="e.g. 'Physics Grade 12 EUEE 2025'"
+                    value={form.metaphor}
+                    onChange={e => setF('metaphor', e.target.value)}
+                    className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 transition"
+                  />
+                </Card>
+                
+                <button type="button" disabled={!form.topic.trim()}
+                  onClick={() => generateFullVideo('blackboard')}
+                  className="w-full py-4 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 font-black text-white text-sm uppercase tracking-widest transition-all shadow-xl shadow-emerald-500/30 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+                  ✍️ Generate Blackboard Q&A
+                </button>
+                <p className="text-center text-[10px] text-gray-600">Silent, realistic chalk simulation — high-quality step-by-step solver</p>
+              </div>
+            )}
           </div>
         )}
 

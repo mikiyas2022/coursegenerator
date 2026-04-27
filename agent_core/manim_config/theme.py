@@ -417,11 +417,11 @@ import os
 from manim_voiceover import VoiceoverScene
 from manim_voiceover.services.base import SpeechService
 
-# Default English voice — warm, clear, 3B1B vibe
-EDGE_TTS_VOICE = os.environ.get("EDGE_TTS_VOICE", "en-US-GuyNeural")
+# Default Amharic voice for 3B1B mode
+EDGE_TTS_VOICE = os.environ.get("EDGE_TTS_VOICE", "am-ET-MekdesNeural")
 
 
-class EdgeTTSEnglishService(SpeechService):
+class EdgeTTSAmharicService(SpeechService):
     """
     High-quality English TTS via Microsoft Edge neural voices.
     Free, open-source (edge-tts), zero API key required.
@@ -493,7 +493,7 @@ class EdgeTTSEnglishService(SpeechService):
 
 
 # Keep backward compat alias
-LocalMMSService = EdgeTTSEnglishService
+LocalMMSService = EdgeTTSAmharicService
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -511,7 +511,7 @@ class AmharicEduScene(VoiceoverScene, MovingCameraScene):
         self.camera.frame.save_state()
         setup_scene(self)
         voice = os.environ.get("EDGE_TTS_VOICE", EDGE_TTS_VOICE)
-        self.set_speech_service(EdgeTTSEnglishService(voice=voice))
+        self.set_speech_service(EdgeTTSAmharicService(voice=voice))
 
     # ── Text helpers ──────────────────────────────────────────────────────────
     def show_text(self, text: str, position=ORIGIN, font_size=FONT_SIZE_BODY, color=TEXT_COLOR):
