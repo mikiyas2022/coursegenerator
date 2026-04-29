@@ -509,7 +509,3 @@ class AmharicEduScene(VoiceoverScene, MovingCameraScene):
 
     def glow_dot(self, point=None, color=STAR_YELLOW, radius=0.12):
         return glow_dot(point, color, radius)
-# ─────────────────────────────────────────────────────────────────────────────
-# NOTE: Blackboard theming removed — 3B1B mode only.
-# Use AmharicEduScene for all scenes.
-# ─────────────────────────────────────────────────────────────────────────────

@@ -1,9 +1,8 @@
 'use client';
 
 /**
- * page.tsx — 3B1B English Course Factory UI (v4)
+ * page.tsx — 3B1B English Course Factory UI (v5)
  * Single clean input form → Generate 3B1B Course → Live log stream → Done
- * No blackboard tab. No EUEE. Pure 3B1B.
  */
 
 import React, {
@@ -259,7 +258,7 @@ export default function HomePage() {
               3B1B English Course Factory
             </h1>
             <p style={{ fontSize: 11, color: '#8892B0', marginTop: 3 }}>
-              Grant Sanderson–quality STEM explainer videos • Kokoro TTS • 30 visual templates
+              Grant Sanderson–quality STEM explainer videos • Kokoro TTS • 42 visual templates
             </p>
           </div>
         </div>

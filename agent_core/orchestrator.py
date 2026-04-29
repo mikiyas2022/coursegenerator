@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-orchestrator.py — 3B1B English Course Factory (v4 — Pure 3B1B Mode)
+orchestrator.py — 3B1B English Course Factory (v5)
 ====================================================================
-Blackboard mode completely removed. Only world-class 3B1B explanatory videos.
+42 templates. Kokoro TTS. Autonomous pipeline.
 
 Pipeline:  Researcher → Scriptwriter → Visual Designer → Math Verifier
            → Template Orchestrator → Critic → Post-Production
@@ -587,7 +587,7 @@ def health():
         "port": ORCHESTRATOR_PORT,
         "auto_approve": AUTO_APPROVE,
         "mode": "3b1b_english_only",
-        "templates": 30,
+        "templates": 42,
         "pipeline": ["researcher", "scriptwriter", "visual_designer", "math_verifier",
                      "template_orchestrator", "critic", "postprod"],
     }

@@ -1,10 +1,7 @@
 """
-agents/template_orchestrator.py — 3B1B Template-Powered Manim Orchestrator (v4)
-================================================================================
-Pure 3B1B mode only. No Blackboard. No EUEE. No silence.
-- Picks templates intelligently based on scene type
-- Injects real narration sentences into voiceover blocks
-- Guarantees at least 6 unique templates per episode
+agents/template_orchestrator.py — 3B1B Template Orchestrator (v5)
+=================================================================
+42 high-quality templates. Intelligent keyword matching. Sync-safe output.
 """
 
 import os
@@ -25,47 +22,67 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(_
 
 # Template category hints — maps scene types to best templates
 TEMPLATE_HINTS = {
-    "intro":        ["template_01"],
+    "intro":        ["template_01", "template_32"],
     "hook":         ["template_01", "template_16"],
     "vector":       ["template_02", "template_13"],
     "trajectory":   ["template_03"],
-    "formula":      ["template_04", "template_04"],
+    "formula":      ["template_04", "template_39"],
     "number":       ["template_05"],
-    "wave":         ["template_06", "template_27"],
+    "wave":         ["template_06", "template_27", "template_38"],
     "circle":       ["template_07", "template_12", "template_29"],
-    "example":      ["template_08"],
-    "comparison":   ["template_09"],
-    "graph":        ["template_10", "template_17", "template_21"],
+    "example":      ["template_08", "template_35", "template_39"],
+    "comparison":   ["template_09", "template_35"],
+    "graph":        ["template_10", "template_17", "template_21", "template_33"],
     "bullet":       ["template_11"],
-    "geometry":     ["template_12", "template_23"],
+    "geometry":     ["template_12", "template_23", "template_42"],
     "force":        ["template_13"],
     "zoom":         ["template_14"],
     "energy":       ["template_15"],
     "analogy":      ["template_16"],
-    "derivative":   ["template_17"],
+    "derivative":   ["template_17", "template_33"],
     "parametric":   ["template_18"],
-    "integral":     ["template_19"],
+    "integral":     ["template_19", "template_40"],
     "summary":      ["template_20", "template_30"],
-    "exponential":  ["template_21"],
+    "exponential":  ["template_21", "template_36"],
     "matrix":       ["template_22"],
     "triangle":     ["template_23"],
-    "probability":  ["template_24"],
+    "probability":  ["template_24", "template_34"],
     "circuit":      ["template_25"],
     "pendulum":     ["template_26"],
-    "doppler":      ["template_27"],
-    "statistics":   ["template_28", "template_28"],
+    "doppler":      ["template_27", "template_38"],
+    "statistics":   ["template_28", "template_34"],
     "trig":         ["template_29", "template_06"],
     "finale":       ["template_30"],
+    "3d":           ["template_31"],
+    "surface":      ["template_31"],
+    "silent":       ["template_32", "template_41"],
+    "tracker":      ["template_33"],
+    "dynamic":      ["template_33"],
+    "venn":         ["template_34"],
+    "set":          ["template_34"],
+    "before":       ["template_35"],
+    "transform":    ["template_35", "template_22"],
+    "taylor":       ["template_36"],
+    "approximat":   ["template_36"],
+    "convergence":  ["template_36"],
+    "flowchart":    ["template_37"],
+    "algorithm":    ["template_37"],
+    "decision":     ["template_37"],
+    "interfere":    ["template_38"],
+    "superposit":   ["template_38"],
+    "solve":        ["template_39"],
+    "step":         ["template_39"],
+    "area":         ["template_40"],
+    "chapter":      ["template_41"],
+    "cross":        ["template_42"],
+    "layer":        ["template_42"],
+    "structure":    ["template_42"],
 }
 
 
 def run_template_orchestrator(scenes: list[dict], mode: str = "3b1b") -> list[str]:
-    """
-    Selects 3B1B templates based on scene content and fills them with narration.
-    Always 3B1B mode — blackboard mode removed.
-    Returns list of executable Manim Python code strings.
-    """
-    log.info(f"Template Orchestrator: {len(scenes)} scenes")
+    """Select from 42 templates, inject narration, fix sync. Returns Manim code strings."""
+    log.info(f"Template Orchestrator: {len(scenes)} scenes, 42 templates available")
     return _generate_3b1b_scenes(scenes)
 
 
@@ -268,6 +285,3 @@ def _guaranteed_simple_fallback(scene: dict) -> str:
         self.wait(0.5)
 '''
 
-
-# Alias for backward compat
-run_blackboard_orchestrator = run_template_orchestrator

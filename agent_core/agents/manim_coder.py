@@ -80,9 +80,8 @@ def CurvedBezier(*args, **kwargs):
     return CurvedArrow(*args, **kwargs)
 '''
 
-# BLACKBOARD_HEADER_TEMPLATE removed — 3B1B mode only.
 MMS_SERVICE_HEADER = SCRIPT_HEADER_TEMPLATE
-BLACKBOARD_HEADER_TEMPLATE = SCRIPT_HEADER_TEMPLATE  # backward compat alias
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 3B1B System Prompt — massive quality upgrade
