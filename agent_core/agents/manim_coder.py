@@ -2,6 +2,7 @@
 agents/manim_coder.py — Manim Developer Agent (v6 — Full 3B1B Quality)
 Integrates Visual Designer storyboard_plan, uses manim_config.theme import.
 """
+from __future__ import annotations
 
 import re
 import sys

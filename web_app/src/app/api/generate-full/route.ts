@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 
-const ORCHESTRATOR_URL = process.env.ORCHESTRATOR_URL || 'http://localhost:8205';
+const ORCHESTRATOR_URL = process.env.ORCHESTRATOR_URL || 'http://127.0.0.1:8205';
 
 export async function POST(req: NextRequest) {
   const body = await req.json();

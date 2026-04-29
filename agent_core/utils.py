@@ -11,9 +11,22 @@ def clean_json_response(raw: str) -> str:
     if match:
         raw = match.group(1).strip()
     else:
-        # Try to find anything between the first { and last }
-        start = raw.find("{")
-        end   = raw.rfind("}")
+        # Try to find anything between the first { or [ and last } or ]
+        start_obj = raw.find("{")
+        start_arr = raw.find("[")
+        
+        # Decide if it starts as an object or array
+        start = start_obj if start_obj != -1 else start_arr
+        if start_obj != -1 and start_arr != -1:
+            start = min(start_obj, start_arr)
+            
+        end_obj = raw.rfind("}")
+        end_arr = raw.rfind("]")
+        
+        end = end_obj if end_obj != -1 else end_arr
+        if end_obj != -1 and end_arr != -1:
+            end = max(end_obj, end_arr)
+            
         if start != -1 and end != -1 and end > start:
             raw = raw[start:end+1]
         else:

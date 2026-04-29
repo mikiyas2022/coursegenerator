@@ -3,6 +3,7 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+.venv
 .venv/
 venv/
 *.egg-info/
@@ -35,3 +36,10 @@ video_compiler/piper/
 # Environment variables
 .env
 .env.local
+
+# IDE
+.vscode/
+
+# Kokoro TTS models
+*.onnx
+*.bin

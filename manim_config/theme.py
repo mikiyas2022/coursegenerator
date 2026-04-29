@@ -408,110 +408,23 @@ def clamp_to_screen(mob: "Mobject", margin: float = 0.3) -> "Mobject":
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# TTS / Voiceover Integration — EdgeTTS English (crystal-clear neural voice)
-# ─────────────────────────────────────────────────────────────────────────────
-
-import asyncio
-import hashlib
-import os
-from manim_voiceover import VoiceoverScene
-from manim_voiceover.services.base import SpeechService
-
-# Default Amharic voice for 3B1B mode
-EDGE_TTS_VOICE = os.environ.get("EDGE_TTS_VOICE", "am-ET-MekdesNeural")
-
-
-class EdgeTTSAmharicService(SpeechService):
-    """
-    High-quality English TTS via Microsoft Edge neural voices.
-    Free, open-source (edge-tts), zero API key required.
-    Voices: en-US-GuyNeural (warm male), en-US-AriaNeural (female)
-    """
-
-    def __init__(self, voice: str = EDGE_TTS_VOICE, **kwargs):
-        self.voice = voice
-        super().__init__(**kwargs)
-
-    @staticmethod
-    def _write_silent_mp3(path: str, duration_sec: float = 3.0) -> None:
-        """Write a minimal silent MP3 so Manim always has valid audio."""
-        try:
-            from pydub import AudioSegment
-            silent = AudioSegment.silent(duration=int(duration_sec * 1000))
-            silent.export(path, format="mp3")
-        except Exception:
-            with open(path, "wb") as f:
-                f.write(b"\xff\xfb\x90\x00" * 4000)
-
-    def generate_from_text(self, text: str, cache_dir=None, path=None, **kwargs) -> dict:
-        """Generate audio via edge-tts and return filename for manim-voiceover."""
-        output_dir = os.path.abspath(str(self.cache_dir))
-        os.makedirs(output_dir, exist_ok=True)
-
-        input_data = f"{text}_{self.voice}"
-        data_hash = hashlib.sha256(input_data.encode("utf-8")).hexdigest()
-        filename = f"{data_hash}.mp3"
-        abs_path = os.path.join(output_dir, filename)
-
-        if not os.path.exists(abs_path) or os.path.getsize(abs_path) < 100:
-            try:
-                import edge_tts
-
-                async def _synthesize():
-                    communicate = edge_tts.Communicate(text, self.voice)
-                    await communicate.save(abs_path)
-
-                # Run async edge-tts in sync context
-                try:
-                    loop = asyncio.get_event_loop()
-                    if loop.is_running():
-                        import concurrent.futures
-                        with concurrent.futures.ThreadPoolExecutor() as pool:
-                            pool.submit(lambda: asyncio.run(_synthesize())).result(timeout=60)
-                    else:
-                        loop.run_until_complete(_synthesize())
-                except RuntimeError:
-                    asyncio.run(_synthesize())
-
-                if os.path.exists(abs_path) and os.path.getsize(abs_path) > 100:
-                    print(
-                        f"  [EdgeTTS] Generated: voice={self.voice} → {abs_path}",
-                        flush=True,
-                    )
-                else:
-                    raise RuntimeError("EdgeTTS produced empty file")
-
-            except Exception as exc:
-                print(f"  [EdgeTTS] FAILED ({exc}). Writing silent fallback.", flush=True)
-                self._write_silent_mp3(abs_path)
-
-        if not os.path.exists(abs_path) or os.path.getsize(abs_path) < 100:
-            print("  [EdgeTTS] Invalid file — silent fallback.", flush=True)
-            self._write_silent_mp3(abs_path)
-
-        return {"original_audio": filename}
-
-
-# Keep backward compat alias
-LocalMMSService = EdgeTTSAmharicService
-
-
-# ─────────────────────────────────────────────────────────────────────────────
 # Base Scene Class
 # ─────────────────────────────────────────────────────────────────────────────
+
+from manim_voiceover import VoiceoverScene
+from kokoro_mv import KokoroService
 
 class AmharicEduScene(VoiceoverScene, MovingCameraScene):
     """
     Standard base class for all generated Manim scenes.
-    Uses EdgeTTS English neural voice for crystal-clear narration.
+    Uses Kokoro TTS for fast, high-quality local generation.
     """
 
     def setup(self):
         super().setup()
         self.camera.frame.save_state()
         setup_scene(self)
-        voice = os.environ.get("EDGE_TTS_VOICE", EDGE_TTS_VOICE)
-        self.set_speech_service(EdgeTTSAmharicService(voice=voice))
+        self.set_speech_service(KokoroService(voice="af_sarah", lang="en-us"))
 
     # ── Text helpers ──────────────────────────────────────────────────────────
     def show_text(self, text: str, position=ORIGIN, font_size=FONT_SIZE_BODY, color=TEXT_COLOR):

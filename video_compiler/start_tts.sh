@@ -34,7 +34,7 @@ echo "    PID: $TTS_PID"
 # ── Optionally wait for readiness ─────────────────────────────────────────────
 if [[ "${1:-}" == "--wait" ]]; then
   echo -n "    Waiting for server "
-  MAX_WAIT=30   # Edge-TTS needs no model loading — should be fast
+  MAX_WAIT=120   # TTS needs model loading — might take a minute on cold start
   ELAPSED=0
   while ! curl -sf "$HEALTH_URL" > /dev/null 2>&1; do
     sleep 1

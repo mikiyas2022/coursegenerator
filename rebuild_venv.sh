@@ -36,6 +36,13 @@ echo "Installing packages (this may take a few minutes)…"
   langgraph \
   langchain-openai \
   langchain-core \
+  langchain-community \
+  langchain-huggingface \
+  faiss-cpu \
+  edge-tts \
+  kokoro-manim-voiceover \
+  sympy \
+  python-dotenv \
   requests \
   --quiet
 

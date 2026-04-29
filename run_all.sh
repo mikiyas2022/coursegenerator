@@ -33,14 +33,14 @@ pkill -f "orchestrator.py" 2>/dev/null && echo "  Killed stale orchestrators" ||
 pkill -f "next dev"        2>/dev/null && echo "  Killed stale Next.js"        || true
 sleep 1
 
-# ── 1. TTS Server ─────────────────────────────────────────────────────────────
+# ── 1. TTS Server (Disabled — Using Kokoro locally) ─────────────────────────
 echo ""
-echo "🎙  Starting TTS Server..."
-if curl -sf http://127.0.0.1:8102/health >/dev/null 2>&1; then
-  echo "  TTS already running ✓"
-else
-  bash "$PROJECT_ROOT/video_compiler/start_tts.sh" --wait
-fi
+echo "🎙  TTS Server (Disabled — Using Kokoro locally)..."
+# if curl -sf http://127.0.0.1:8102/health >/dev/null 2>&1; then
+#   echo "  TTS already running ✓"
+# else
+#   bash "$PROJECT_ROOT/video_compiler/start_tts.sh" --wait
+# fi
 
 # ── 2. Orchestrator ───────────────────────────────────────────────────────────
 echo ""
@@ -61,7 +61,7 @@ cd "$PROJECT_ROOT"
 
 # ── 3. Next.js Web App ────────────────────────────────────────────────────────
 echo ""
-echo "🌐 Starting Next.js on http://localhost:3000..."
+echo "🌐 Starting Next.js on http://localhost:3015..."
 if [ ! -d "$WEBAPP/node_modules" ]; then
   echo "  Installing npm deps..."
   cd "$WEBAPP" && npm install && cd "$PROJECT_ROOT"
@@ -70,7 +70,7 @@ fi
 echo ""
 echo "╔══════════════════════════════════════════════════════════════╗"
 echo "║  ⚡ 3B1B Mode Ready!                                        ║"
-echo "║  🌐  Web UI:        http://localhost:3000                   ║"
+echo "║  🌐  Web UI:        http://localhost:3015                   ║"
 echo "║  🤖  Orchestrator:  http://localhost:8205                   ║"
 echo "║  🎙   TTS Server:   http://localhost:8102                   ║"
 echo "║  📝  Log:           logs/pipeline.log                      ║"
@@ -78,4 +78,4 @@ echo "╚═══════════════════════�
 echo ""
 
 cd "$WEBAPP"
-exec node ./node_modules/next/dist/bin/next dev -p 3000
+exec node ./node_modules/next/dist/bin/next dev -p 3015

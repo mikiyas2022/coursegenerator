@@ -35,6 +35,7 @@ from agents.scriptwriter    import run_scriptwriter
 from agents.visual_designer import run_visual_designer
 from agents.math_verifier   import run_math_verifier
 from agents.template_orchestrator import run_template_orchestrator
+from agents.blackboard_solver   import run_blackboard_solver
 from agents.critic          import run_critic
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -332,6 +333,28 @@ async def _stream_generate_full(req: GenerateFullRequest) -> AsyncGenerator[str,
         answer = req.correct_answer
         subject = req.subject_grade or req.metaphor
 
+        yield _sse("status", {"message": "🧮 Solving problem step-by-step…", "phase": "blackboard_solver"})
+        try:
+            solver_task = loop.run_in_executor(
+                executor, lambda: run_blackboard_solver(question, answer)
+            )
+            while not solver_task.done():
+                yield _sse("ping", {"message": "DeepSeek-R1 is reasoning..."})
+                await asyncio.sleep(5)
+            steps = await solver_task
+            log.info(f"Blackboard solver returned {len(steps)} steps:")
+            for i, s in enumerate(steps):
+                log.info(f"  Step {i+1}: {s[:120]}")
+        except Exception as exc:
+            log.error(f"Blackboard solver failed: {exc}")
+            steps = []
+
+        # If solver returned nothing, use fallback builder
+        if not steps or len(steps) < 2:
+            log.warning("Solver returned empty/tiny steps — using fallback builder")
+            from agents.blackboard_solver import _build_fallback_solution
+            steps = _build_fallback_solution(question, answer)
+
         # Build a single scene dict for the blackboard template orchestrator
         scenes = [{
             "scene_name": "BB_Solution",
@@ -342,7 +365,7 @@ async def _stream_generate_full(req: GenerateFullRequest) -> AsyncGenerator[str,
             "answer": answer,
             "subject_grade": subject,
             "metaphor": subject,
-            "sentences": [],  # silent — no narration
+            "sentences": steps,  # The actual mathematical steps
         }]
 
         yield _sse("storyboard_ready", {
@@ -357,9 +380,13 @@ async def _stream_generate_full(req: GenerateFullRequest) -> AsyncGenerator[str,
         # ═══════════════════════════════════════════════════════════════════
         yield _sse("status", {"message": "🔬 Researching…", "phase": "researcher"})
         try:
-            steps = await loop.run_in_executor(
+            task = loop.run_in_executor(
                 executor, lambda: run_researcher(req.topic, req.audience, req.style, req.metaphor, req.source_material)
             )
+            while not task.done():
+                yield _sse("ping", {"message": "Researcher is thinking..."})
+                await asyncio.sleep(5)
+            steps = await task
         except Exception as exc:
             yield _sse("error", {"message": f"Research failed: {exc}"}); return
 
@@ -367,25 +394,37 @@ async def _stream_generate_full(req: GenerateFullRequest) -> AsyncGenerator[str,
 
         yield _sse("status", {"message": "✍️ Writing scripts…", "phase": "scriptwriter"})
         scenes = []
-        for step in steps:
+        for i, step in enumerate(steps):
             try:
-                result = await loop.run_in_executor(
+                task = loop.run_in_executor(
                     executor, lambda step=step: run_scriptwriter([step], req.style, req.source_material)
                 )
+                while not task.done():
+                    yield _sse("ping", {"message": f"Writing script for scene {i+1}..."})
+                    await asyncio.sleep(5)
+                result = await task
                 scenes.append(result[0] if result else step)
             except Exception:
                 scenes.append(step)
 
         yield _sse("status", {"message": "🎨 Visual Designer at work…", "phase": "visual_designer"})
         try:
-            scenes = await loop.run_in_executor(executor, lambda: run_visual_designer(scenes))
+            task = loop.run_in_executor(executor, lambda: run_visual_designer(scenes))
+            while not task.done():
+                yield _sse("ping", {"message": "Designing visual layouts..."})
+                await asyncio.sleep(5)
+            scenes = await task
             yield _sse("designer_done", {"message": "✅ Storyboard plans ready"})
         except Exception as exc:
             log.error(f"Visual designer: {exc}")
 
         yield _sse("status", {"message": "🧮 Verifying math…", "phase": "math_verifier"})
         try:
-            scenes = await loop.run_in_executor(executor, lambda: run_math_verifier(scenes))
+            task = loop.run_in_executor(executor, lambda: run_math_verifier(scenes))
+            while not task.done():
+                yield _sse("ping", {"message": "Verifying mathematical consistency..."})
+                await asyncio.sleep(5)
+            scenes = await task
         except Exception as exc:
             log.error(f"Math verifier: {exc}")
 
@@ -425,9 +464,13 @@ async def _stream_generate_full(req: GenerateFullRequest) -> AsyncGenerator[str,
 
     # ── Final render ──────────────────────────────────────────────────────
     yield _sse("status", {"message": "🎬 Final render…", "phase": "final_render"})
-    final_result = await loop.run_in_executor(
+    task = loop.run_in_executor(
         executor, lambda: run_final_render_parallel(output_folder, req.orientation)
     )
+    while not task.done():
+        yield _sse("ping", {"message": "Rendering high-quality video..."})
+        await asyncio.sleep(5)
+    final_result = await task
 
     if not final_result.get("success"):
         yield _sse("error", {"message": f"Final render failed: {final_result.get('error', '')[:300]}"}); return
@@ -583,11 +626,18 @@ async def create_video(req: CreateJobRequest):
 
     async def _gen():
         while True:
-            kind, payload = await q.get()
+            try:
+                # Wait for 5s for a real event, else send a ping
+                kind, payload = await asyncio.wait_for(q.get(), timeout=5.0)
+            except asyncio.TimeoutError:
+                yield _sse("ping", {"message": "Thinking..."})
+                continue
+
             if kind == "error":
                 yield _sse("error", {"message": payload}); break
             if kind == "done":
                 yield _sse("complete", {"message": "🚀 Done!", "output_folder": output_folder}); break
+            
             node_name = list(payload.keys())[0]
             events = payload[node_name].get("events", [])
             if events:
@@ -620,5 +670,5 @@ def force_exit():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("orchestrator:app", host="127.0.0.1", port=ORCHESTRATOR_PORT,
+    uvicorn.run("orchestrator:app", host="0.0.0.0", port=ORCHESTRATOR_PORT,
                 log_level="info", reload=False)

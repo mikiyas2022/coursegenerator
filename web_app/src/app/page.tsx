@@ -328,7 +328,7 @@ export default function StudioPage() {
   const renderFinal = async () => {
     if (!outputFolder) return;
     try {
-      const res = await fetch('http://localhost:8205/render_final', {
+      const res = await fetch('http://127.0.0.1:8205/render_final', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ output_folder: outputFolder, orientation: form.orientation }),

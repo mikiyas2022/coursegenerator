@@ -5,6 +5,7 @@ Two-stage validation for ALL scenes (not just the first):
   Stage 1 — Syntax/Runtime: run Manim -ql for EACH scene class, catch tracebacks
   Stage 2 — Visual:         run Manim -s (last frame), pass PNG to VL model
 """
+from __future__ import annotations
 
 import base64
 import os
@@ -48,7 +49,7 @@ def _extract_scene_names(code: str) -> list[str]:
     """Extract class names that inherit from scene-like bases."""
     all_classes = re.findall(r"^class\s+(\w+)\s*\([^)]*\):", code, re.MULTILINE)
     # Filter out helper classes that aren't scenes
-    skip = {"EdgeTTSService", "LocalMMSService", "AmharicEduScene", "BlackboardScene", "EdgeTTSAmharicService"}
+    skip = {"EdgeTTSService", "LocalMMSService", "AmharicEduScene", "BlackboardScene", "EdgeTTSAmharicService", "KokoroService"}
     return [c for c in all_classes if c not in skip]
 
 
