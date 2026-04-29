@@ -258,7 +258,7 @@ export default function HomePage() {
               3B1B English Course Factory
             </h1>
             <p style={{ fontSize: 11, color: '#8892B0', marginTop: 3 }}>
-              Grant Sanderson–quality STEM explainer videos • Kokoro TTS • 42 visual templates
+              Grant Sanderson–quality STEM explainer videos • Kokoro TTS • 42 base + 1000+ generated templates
             </p>
           </div>
         </div>

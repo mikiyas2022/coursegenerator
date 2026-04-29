@@ -97,14 +97,16 @@ INHERITANCE & SETUP:
 2. ALWAYS start construct() with: `setup_scene(self)`
 3. DO NOT touch the camera at all (no save_state, no zoom, no scale).
 
-VOICEOVER SYNC (CRITICAL):
+VOICEOVER SYNC (CRITICAL — AUDIO MUST MATCH VIDEO):
 4. One sentence = one `with self.voiceover(text="...") as tracker:` block. NEVER merge or skip.
 5. ALWAYS use `run_time=tracker.duration * X` (where X is 0.3-0.9) for animations in each block.
 6. NEVER have a voiceover block that only calls self.wait() — ALWAYS show something visual.
+7. ALWAYS call `self.clear()` BEFORE the `with self.voiceover(...)` line, NEVER inside it.
+   This ensures the screen is clean BEFORE audio starts playing.
 
 CANVAS BOUNDS (prevents cropping):
-7. NEVER place objects beyond: x in [-5.5, 5.5], y in [-3.0, 3.0]
-8. Call `self.clear()` at the START of each voiceover block to prevent clutter.
+8. NEVER place objects beyond: x in [-5, 5], y in [-2.8, 2.8]
+9. Call `clamp_to_screen(mob)` on any text or large object to prevent overflow.
 
 VISUAL DIVERSITY (CRITICAL — DO NOT repeat the same pattern):
 Each voiceover block should use a DIFFERENT visual approach. Mix and match from:
@@ -145,14 +147,14 @@ FORBIDDEN (these crash Manim):
 - `.scale()`, `.zoom()` on camera
 - `GlowDot` -> use `glow_dot()`
 
-FEW-SHOT EXAMPLE (study this pattern — notice EVERY block has unique visuals):
+FEW-SHOT EXAMPLE (study this pattern — self.clear() is BEFORE voiceover, EVERY block has unique visuals):
 ```python
 class MotionDemo(AmharicEduScene):
     def construct(self):
         setup_scene(self)
 
+        self.clear()
         with self.voiceover(text="Sentence 1 here") as tracker:
-            self.clear()
             tc = title_card("Motion", "")
             underline = Line(LEFT * 3, RIGHT * 3, color=TEAL_ACCENT, stroke_width=4)
             underline.next_to(tc, DOWN, buff=0.2)
@@ -160,8 +162,8 @@ class MotionDemo(AmharicEduScene):
             self.play(Create(underline), run_time=tracker.duration * 0.3)
             self.play(Indicate(tc, color=STAR_YELLOW), run_time=tracker.duration * 0.2)
 
+        self.clear()
         with self.voiceover(text="Sentence 2 here") as tracker:
-            self.clear()
             angle_t = ValueTracker(0)
             plane = branded_axes([-4, 4, 1], [-3, 3, 1]).scale(0.7)
             vec = always_redraw(lambda: Arrow(

@@ -580,16 +580,25 @@ async def create_video(req: CreateJobRequest):
 
 @app.get("/health")
 def health():
+    gen_count = 0
+    try:
+        from agents.template_generator import get_generated_template_count
+        gen_count = get_generated_template_count()
+    except Exception:
+        pass
     return {
         "status": "ok",
         "service": "3b1b-course-factory",
-        "version": "4.0.0",
+        "version": "6.0.0",
         "port": ORCHESTRATOR_PORT,
         "auto_approve": AUTO_APPROVE,
         "mode": "3b1b_english_only",
-        "templates": 42,
+        "base_templates": 42,
+        "generated_variants": gen_count,
+        "effective_templates": f"42 base + {gen_count} generated = 1000+ potential",
+        "matching": "TF-IDF cosine similarity",
         "pipeline": ["researcher", "scriptwriter", "visual_designer", "math_verifier",
-                     "template_orchestrator", "critic", "postprod"],
+                     "template_orchestrator", "template_generator", "critic", "postprod"],
     }
 
 

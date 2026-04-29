@@ -1,9 +1,9 @@
 """
-agents/visual_designer.py — Visual Storyboard Director Agent (v3 — 3B1B Masterpiece)
+agents/visual_designer.py — Visual Storyboard Director Agent (v4 — 42 Templates)
 
-Runs AFTER Scriptwriter, BEFORE Manim Coder.
-Produces a detailed visual plan per scene, guiding template selection and animation.
-Now enforces 30-template vocabulary awareness and MovingCameraScene choreography.
+Runs AFTER Scriptwriter, BEFORE Template Orchestrator.
+Produces detailed visual plans per scene, guiding the context-aware template selection.
+Now aware of all 42 base templates + dynamic generation capability.
 """
 
 import json
@@ -20,43 +20,55 @@ from langchain_core.messages import HumanMessage, SystemMessage
 log = get_logger("visual_designer")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# System prompt — full 30-template vocabulary + camera choreography
+# System prompt — full 42-template vocabulary + camera choreography
 # ─────────────────────────────────────────────────────────────────────────────
 
 SYSTEM_PROMPT = """You are a world-class visual storyboard director for 3Blue1Brown–quality educational videos.
 Your job: write a richly detailed VISUAL PLAN per scene. NOT Manim code — a DIRECTOR'S BRIEF.
 
-AVAILABLE TEMPLATE CATEGORIES (choose ONE per scene, vary across episode):
-- HOOK/INTRO: Cinematic title reveal, big question mark, curiosity burst (template_01)
-- VECTOR: Rotating vector + decomposition arrows, angle sweep (template_02)
-- TRAJECTORY: Parabolic TracedPath, projectile dot, peak glow (template_03)
-- FORMULA: Box appears → term highlight → circumscribe → explosion burst (template_04)
-- NUMBER: NumberLine + sliding triangle marker + count-up (template_05)
-- WAVE: Sine/cosine with phase ValueTracker, amplitude label (template_06)
-- CIRCLE MORPH: Circle→formula ReplacementTransform (template_07)
-- WORKED EXAMPLE: Two-panel layout, step-by-step calculation (template_08)
-- COMPARISON: Side-by-side circles with DoubleArrow bridge (template_09)
-- GRAPH TRANSFORM: plot f(x) → ValueTracker 'a' parameter changes shape (template_10)
-- BULLETS: Animated text list, accent bars fly in (template_11)
-- GEOMETRIC GROWTH: Circle radius ValueTracker + area label (template_12)
-- FORCE DIAGRAM: Rectangle body + Arrow forces + labels (template_13)
-- CAMERA ZOOM: MovingCamera zoom in → reveal → pull back (template_14)
-- ENERGY BAR: KE/PE bars animate with ValueTracker (template_15)
-- ANALOGY: Bouncing ball/object → transforms to concept (template_16)
-- DERIVATIVE: Moving tangent line on curve (template_17)
-- PARAMETRIC: Lissajous/spiral TracedPath (template_18)
-- RIEMANN: Bars under curve → n increases → integral (template_19)
-- SUMMARY: Checklist + finale explosion (template_20)
-- EXPONENTIAL: Growing e^x curve with ValueTracker (template_21)
-- MATRIX: NumberPlane apply_matrix transform (template_22)
-- PYTHAGOREAN: Right triangle + squares proof (template_23)
-- PROBABILITY TREE: Branching diagram with labels (template_24)
-- CIRCUIT: Battery → wire → resistor → glowing bulb (template_25)
-- PENDULUM: Swinging bob with always_redraw (template_26)
-- DOPPLER: Wavefronts with moving source (template_27)
-- HISTOGRAM: Animated bars + mean line (template_28)
-- UNIT CIRCLE: Angle sweep, sin/cos projections (template_29)
-- FINALE: Multiple formulas orbit center → collapse → starburst (template_30)
+AVAILABLE TEMPLATE CATEGORIES (42 templates — choose ONE per scene, vary across episode):
+01-HOOK: Cinematic title, big ?, curiosity burst
+02-VECTOR: Rotating arrow decomposition, angle sweep
+03-TRAJECTORY: Parabolic TracedPath, projectile
+04-FORMULA: Box → highlight → circumscribe → burst
+05-NUMBER: NumberLine + sliding marker + count-up
+06-WAVE: Sine/cosine phase ValueTracker
+07-CIRCLE MORPH: Circle→formula ReplacementTransform
+08-WORKED EXAMPLE: Two-panel step-by-step
+09-COMPARISON: Side-by-side with bridge arrow
+10-GRAPH TRANSFORM: ValueTracker parameter slider
+11-BULLETS: Animated text list with accents
+12-GEOMETRIC GROWTH: Circle + area ValueTracker
+13-FORCE DIAGRAM: Rectangle + Arrow forces
+14-CAMERA ZOOM: Zoom in → reveal → pull back
+15-ENERGY BARS: KE/PE bars animate
+16-ANALOGY: Bouncing object → concept morph
+17-DERIVATIVE: Moving tangent line on curve
+18-PARAMETRIC: Lissajous/spiral TracedPath
+19-RIEMANN: Bars → integral convergence
+20-SUMMARY: Checklist + finale explosion
+21-EXPONENTIAL: Growing curve
+22-MATRIX: apply_matrix grid transform
+23-PYTHAGOREAN: Triangle + squares proof
+24-PROBABILITY TREE: Branching outcomes
+25-CIRCUIT: Battery → wire → glowing bulb
+26-PENDULUM: Swinging bob always_redraw
+27-DOPPLER: Expanding wavefronts
+28-HISTOGRAM: Bars + mean line
+29-UNIT CIRCLE: Angle sweep, sin/cos
+30-FINALE: Orbiting formulas → collapse
+31-3D SURFACE: Concentric rings, field visualization
+32-SILENT INTRO: Cinematic title card (NO narration)
+33-TRACKER: always_redraw live coordinate labels
+34-VENN: Overlapping circles, set intersection
+35-BEFORE/AFTER: Split-screen comparison
+36-TAYLOR: Successive polynomial approximations
+37-FLOWCHART: Decision tree with branches
+38-WAVE INTERFERENCE: Superposition of two waves
+39-STEP-BY-STEP: Multi-line equation solving
+40-AREA FILL: Integral fill under curve
+41-CHAPTER CARD: Silent section divider
+42-CROSS-SECTION: Layered structure reveal
 
 For EACH scene, output a JSON object:
 {
@@ -74,20 +86,22 @@ For EACH scene, output a JSON object:
   "humor_beats": [
     "Specific funny moment — exactly what happens on screen"
   ],
-  "color_arc": "Emotional color journey: start→peak→end with specific colors from theme",
-  "aha_moment": "Exact visual description of the aha moment — what glows, what transforms",
+  "color_arc": "Emotional color journey with specific theme colors",
+  "aha_moment": "Exact visual description of the aha moment",
   "key_animations": [
     "Specific ManimCE animation type and object"
   ],
-  "timing_note": "Which sentences are fast vs slow, where camera should pause"
+  "timing_note": "Which parts are fast vs slow"
 }
 
 RULES:
-1. VARY templates across scenes — no two consecutive scenes use same template
+1. VARY templates — no two consecutive scenes use same template
 2. Be SPECIFIC — name exact Manim objects, colors, coordinates
 3. Every scene needs ONE humor beat and ONE explicit aha moment
-4. Use MovingCameraScene camera moves for at least 2 scenes per episode
-5. Output ONLY a JSON array. No markdown. No explanation."""
+4. First scene should use template_32 (silent intro) for cinematic opening
+5. Last scene should use template_20 or template_30 (summary/finale)
+6. Use at least 8 DIFFERENT templates across an episode
+7. Output ONLY a JSON array. No markdown. No explanation."""
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -156,7 +170,7 @@ Output a JSON ARRAY of {len(scenes)} storyboard objects. Start with [ and end wi
 def _minimal_plan(scene: dict) -> dict:
     """Fallback storyboard plan when LLM fails."""
     concept = scene.get("concept", "STEM concept")
-    idx = hash(concept) % 30 + 1
+    idx = hash(concept) % 42 + 1
     return {
         "scene_name": scene.get("scene_name", "Scene"),
         "recommended_template": f"template_{idx:02d}",
