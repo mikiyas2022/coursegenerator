@@ -1,15 +1,9 @@
 """
-agents/visual_designer.py — Visual Storyboard Designer Agent (NEW)
+agents/visual_designer.py — Visual Storyboard Director Agent (v3 — 3B1B Masterpiece)
 
-Runs AFTER the Scriptwriter and BEFORE the Manim Coder.
-
-Its sole job: produce a detailed visual storyboard plan per scene that captures
-the 3B1B magic:
-  • Which metaphor / object represents the concept
-  • Which shapes morph into what (morph_sequence)
-  • Camera choreography (zoom-in, pan, restore)
-  • Playful humor beats (bouncing numbers, surprised emoji transforms, etc.)
-  • Color choices specific to this scene's emotional arc
+Runs AFTER Scriptwriter, BEFORE Manim Coder.
+Produces a detailed visual plan per scene, guiding template selection and animation.
+Now enforces 30-template vocabulary awareness and MovingCameraScene choreography.
 """
 
 import json
@@ -26,50 +20,74 @@ from langchain_core.messages import HumanMessage, SystemMessage
 log = get_logger("visual_designer")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# System prompt
+# System prompt — full 30-template vocabulary + camera choreography
 # ─────────────────────────────────────────────────────────────────────────────
 
-SYSTEM_PROMPT = """You are a world-class visual storyboard director for educational math/physics videos
-in the style of 3Blue1Brown (Grant Sanderson).
+SYSTEM_PROMPT = """You are a world-class visual storyboard director for 3Blue1Brown–quality educational videos.
+Your job: write a richly detailed VISUAL PLAN per scene. NOT Manim code — a DIRECTOR'S BRIEF.
 
-Your job is NOT to write Manim code. Your job is to write a rich VISUAL PLAN for each scene.
-Think like a film director meets a math educator: every object on screen must MEAN something,
-every movement must TEACH something, and every playful moment must make the viewer smile.
+AVAILABLE TEMPLATE CATEGORIES (choose ONE per scene, vary across episode):
+- HOOK/INTRO: Cinematic title reveal, big question mark, curiosity burst (template_01)
+- VECTOR: Rotating vector + decomposition arrows, angle sweep (template_02)
+- TRAJECTORY: Parabolic TracedPath, projectile dot, peak glow (template_03)
+- FORMULA: Box appears → term highlight → circumscribe → explosion burst (template_04)
+- NUMBER: NumberLine + sliding triangle marker + count-up (template_05)
+- WAVE: Sine/cosine with phase ValueTracker, amplitude label (template_06)
+- CIRCLE MORPH: Circle→formula ReplacementTransform (template_07)
+- WORKED EXAMPLE: Two-panel layout, step-by-step calculation (template_08)
+- COMPARISON: Side-by-side circles with DoubleArrow bridge (template_09)
+- GRAPH TRANSFORM: plot f(x) → ValueTracker 'a' parameter changes shape (template_10)
+- BULLETS: Animated text list, accent bars fly in (template_11)
+- GEOMETRIC GROWTH: Circle radius ValueTracker + area label (template_12)
+- FORCE DIAGRAM: Rectangle body + Arrow forces + labels (template_13)
+- CAMERA ZOOM: MovingCamera zoom in → reveal → pull back (template_14)
+- ENERGY BAR: KE/PE bars animate with ValueTracker (template_15)
+- ANALOGY: Bouncing ball/object → transforms to concept (template_16)
+- DERIVATIVE: Moving tangent line on curve (template_17)
+- PARAMETRIC: Lissajous/spiral TracedPath (template_18)
+- RIEMANN: Bars under curve → n increases → integral (template_19)
+- SUMMARY: Checklist + finale explosion (template_20)
+- EXPONENTIAL: Growing e^x curve with ValueTracker (template_21)
+- MATRIX: NumberPlane apply_matrix transform (template_22)
+- PYTHAGOREAN: Right triangle + squares proof (template_23)
+- PROBABILITY TREE: Branching diagram with labels (template_24)
+- CIRCUIT: Battery → wire → resistor → glowing bulb (template_25)
+- PENDULUM: Swinging bob with always_redraw (template_26)
+- DOPPLER: Wavefronts with moving source (template_27)
+- HISTOGRAM: Animated bars + mean line (template_28)
+- UNIT CIRCLE: Angle sweep, sin/cos projections (template_29)
+- FINALE: Multiple formulas orbit center → collapse → starburst (template_30)
 
-For EACH scene, produce a JSON object with these keys:
-
+For EACH scene, output a JSON object:
 {
   "scene_name": "...",
-  "metaphor_chain": "The everyday object or story that represents this concept. E.g. 'a stretched rubber band' for potential energy.",
-  "opening_visual": "What appears first on screen and how. E.g. 'A blank canvas, then a single glowing dot pops in with a bounce.'",
+  "recommended_template": "template_XX",
+  "metaphor_chain": "The everyday animatable object/story that represents this concept",
+  "opening_visual": "Exact first frame description: what appears, how, where",
   "morph_sequence": [
-    {"from": "Circle", "to": "Ellipse", "meaning": "mass concentrating"},
-    {"from": "Arrow pointing UP", "to": "Arrow pointing RIGHT", "meaning": "direction of force changes"}
+    {"from": "Circle", "to": "Formula box", "meaning": "abstraction emerging"}
   ],
   "camera_moves": [
-    {"type": "zoom_in", "target": "formula box", "when": "after equation appears"},
-    {"type": "pan_right", "target": "graph region", "when": "during velocity buildup"},
+    {"type": "zoom_in", "target": "formula", "when": "after equation appears"},
     {"type": "restore", "when": "before summary"}
   ],
   "humor_beats": [
-    "Numbers bounce in surprise when the acceleration doubles",
-    "A tiny running person icon appears below the velocity vector"
+    "Specific funny moment — exactly what happens on screen"
   ],
-  "color_arc": "Start with cool blues (confusion), transition to warm gold/teal (understanding), end on bright teal (mastery).",
-  "aha_moment": "When the two vectors add up to the resultant — the final arrow glows gold for 1 second.",
+  "color_arc": "Emotional color journey: start→peak→end with specific colors from theme",
+  "aha_moment": "Exact visual description of the aha moment — what glows, what transforms",
   "key_animations": [
-    "ValueTracker for angle sweep from 0 to 45 degrees",
-    "always_redraw for the force decomposition arrows",
-    "Circumscribe the final formula in teal"
-  ]
+    "Specific ManimCE animation type and object"
+  ],
+  "timing_note": "Which sentences are fast vs slow, where camera should pause"
 }
 
 RULES:
-1. Be SPECIFIC — name exact Manim objects (Arrow, Circle, VGroup, NumberPlane, etc.)
-2. Be PLAYFUL — add at least one humor beat per scene
-3. Be EMOTIONAL — describe the 'aha!' moment explicitly
-4. Keep it ACHIEVABLE with ManimCE v0.20.1 constraints (no WebGL, no 3D)
-5. Output ONLY a JSON array of scene objects. No markdown. No explanation."""
+1. VARY templates across scenes — no two consecutive scenes use same template
+2. Be SPECIFIC — name exact Manim objects, colors, coordinates
+3. Every scene needs ONE humor beat and ONE explicit aha moment
+4. Use MovingCameraScene camera moves for at least 2 scenes per episode
+5. Output ONLY a JSON array. No markdown. No explanation."""
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -78,11 +96,10 @@ RULES:
 
 def run_visual_designer(scenes: list[dict]) -> list[dict]:
     """
-    Enrich each scene with a detailed visual storyboard plan.
+    Enrich each scene with a detailed 3B1B visual storyboard plan.
     Returns scenes with added 'storyboard_plan' key.
-    Graceful: on any failure, passes scene through with a minimal plan.
     """
-    llm = get_llm(model_name=VISUAL_DESIGNER_MODEL, temperature=0.4, max_tokens=3000)
+    llm = get_llm(model_name=VISUAL_DESIGNER_MODEL, temperature=0.42, max_tokens=3500)
 
     scene_summaries = []
     for s in scenes:
@@ -92,18 +109,20 @@ def run_visual_designer(scenes: list[dict]) -> list[dict]:
             "explanation": s.get("explanation", ""),
             "latex_formulas": s.get("latex_formulas", []),
             "visual_hint": s.get("visual", s.get("manim_visual_instructions", "")),
-            "sentences": s.get("sentences", [])[:3],  # first 3 for context
+            "sentences": s.get("sentences", [])[:4],  # first 4 sentences for context
+            "worked_example": s.get("worked_example", ""),
         })
 
     user_prompt = f"""Here are {len(scenes)} educational scenes about STEM topics.
-Create a detailed 3B1B-quality visual storyboard plan for EACH scene.
+Create a richly detailed 3B1B-quality visual storyboard plan for EACH scene.
+Use a DIFFERENT template category for each consecutive scene.
+Include camera choreography for at least 2 scenes.
+Ensure every scene has: humor beat, aha moment, specific color arc.
 
 SCENES:
 {json.dumps(scene_summaries, ensure_ascii=False, indent=2)}
 
-For each scene, produce a storyboard object following the schema in your instructions.
-Output a JSON ARRAY of {len(scenes)} storyboard objects, in the same order as the input scenes.
-Start immediately with [ and end with ]."""
+Output a JSON ARRAY of {len(scenes)} storyboard objects. Start with [ and end with ]."""
 
     enriched = []
     try:
@@ -116,18 +135,15 @@ Start immediately with [ and end with ]."""
 
         if not isinstance(plans, list):
             raise ValueError(f"Expected list, got {type(plans)}")
-        if len(plans) != len(scenes):
-            log.warning(
-                f"Visual designer returned {len(plans)} plans for {len(scenes)} scenes — padding."
-            )
-            # Pad or truncate to match
-            while len(plans) < len(scenes):
-                plans.append(_minimal_plan(scenes[len(plans)]))
+
+        # Pad if needed
+        while len(plans) < len(scenes):
+            plans.append(_minimal_plan(scenes[len(plans)]))
 
         for scene, plan in zip(scenes, plans):
             enriched.append({**scene, "storyboard_plan": plan})
 
-        log.info(f"Visual designer produced storyboard plans for {len(enriched)} scenes.")
+        log.info(f"Visual designer produced {len(enriched)} storyboard plans.")
 
     except Exception as exc:
         log.error(f"Visual designer failed ({exc}) — using minimal plans for all scenes.")
@@ -140,27 +156,29 @@ Start immediately with [ and end with ]."""
 def _minimal_plan(scene: dict) -> dict:
     """Fallback storyboard plan when LLM fails."""
     concept = scene.get("concept", "STEM concept")
+    idx = hash(concept) % 30 + 1
     return {
         "scene_name": scene.get("scene_name", "Scene"),
-        "metaphor_chain": f"{concept} is like a growing tree — each branch adds to the whole.",
-        "opening_visual": "Blank dark canvas. A glowing teal dot appears at center, then expands.",
+        "recommended_template": f"template_{idx:02d}",
+        "metaphor_chain": f"{concept} is like a river — always flowing toward the lowest point.",
+        "opening_visual": "Blank dark canvas. A glowing teal dot appears at center, expands into title.",
         "morph_sequence": [
-            {"from": "Dot", "to": "Circle", "meaning": "concept growing"},
-            {"from": "Circle", "to": "Formula", "meaning": "abstraction emerging"},
+            {"from": "Dot", "to": "Circle", "meaning": "concept expanding"},
+            {"from": "Circle", "to": "Formula box", "meaning": "abstraction emerging"},
         ],
         "camera_moves": [
             {"type": "zoom_in", "target": "key formula", "when": "after equation appears"},
             {"type": "restore", "when": "before summary"},
         ],
         "humor_beats": [
-            "Numbers wiggle when they first appear",
-            "A tiny star emoji flashes at the 'aha!' moment",
+            "Numbers bounce in surprise when the value doubles unexpectedly",
         ],
-        "color_arc": "Start with muted blues, peak with bright gold at the aha moment, settle on teal.",
-        "aha_moment": "The formula glows golden for 1 second with a Circumscribe animation.",
+        "color_arc": "Start with muted blues (confusion), peak with bright gold at aha, settle on teal (mastery).",
+        "aha_moment": "The formula glows golden for 1.5 seconds with Circumscribe + glow_dot burst.",
         "key_animations": [
-            "ValueTracker for the main variable",
-            "always_redraw for dependent quantities",
+            "ValueTracker for main variable",
+            "always_redraw for dependent quantity",
             "Circumscribe(formula, color=STAR_YELLOW)",
         ],
+        "timing_note": "Slow down at aha moment. Speed up during number counting.",
     }

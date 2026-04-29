@@ -1,27 +1,44 @@
-from manim import *
-from manim_config.theme import *
-
-class SceneTemplate12_Variation(AmharicEduScene):
+"""
+Template 12 — GEOMETRIC GROWTH: Shape scales/grows with ValueTracker + number
+Pattern: Circle → scale with ValueTracker → display area formula → AHA
+Use for: Area, volume, scaling laws, exponential growth, proportionality
+"""
+class SceneTemplate(AmharicEduScene):
     def construct(self):
         setup_scene(self)
-        with self.voiceover(text="<NARRATION_PLACEHOLDER>") as tracker:
-            self.clear()
-            title = title_card("<AMHARIC_TITLE>", "Variation 12")
-            self.play(FadeIn(title, shift=UP), run_time=tracker.duration * 0.2)
-            
-            axes = branded_axes(x_range=[-1, 5, 1], y_range=[-1, 4, 1]).shift(DOWN*0.5)
-            self.play(Create(axes), run_time=tracker.duration * 0.2)
-            
-            vec = branded_vector(start=axes.c2p(0,0), end=axes.c2p(3,2), color=VECTOR_COLOR)
-            vec_label = latin_text("<VECTOR_LABEL>", font_size=FONT_SIZE_LABEL).next_to(vec.get_end(), UR, buff=0.1)
-            self.play(GrowArrow(vec), Write(vec_label), run_time=tracker.duration * 0.2)
-            
-            vec_x = branded_vector(start=axes.c2p(0,0), end=axes.c2p(3,0), color=X_COLOR)
-            vec_y = branded_vector(start=axes.c2p(3,0), end=axes.c2p(3,2), color=Y_COLOR)
-            
-            self.play(
-                TransformFromCopy(vec, vec_x),
-                TransformFromCopy(vec, vec_y),
-                run_time=tracker.duration * 0.3
-            )
-            self.wait(tracker.duration * 0.1)
+
+        self.clear()
+        with self.voiceover(text="<NARRATION_PLACEHOLDER_0>") as tracker:
+            r = ValueTracker(0.5)
+            circ = always_redraw(lambda: Circle(
+                radius=r.get_value(),
+                color=TEAL_ACCENT, fill_color=TEAL_ACCENT, fill_opacity=0.18,
+                stroke_width=4
+            ).move_to(ORIGIN))
+            r_lbl = always_redraw(lambda: latin_text(
+                f"r = {r.get_value():.1f}", font_size=FONT_SIZE_LABEL, color=STAR_YELLOW
+            ).to_corner(UR).shift(LEFT * 0.5 + DOWN * 0.3))
+            self.add(circ, r_lbl)
+            self.play(r.animate.set_value(2.0), run_time=tracker.duration * 0.7, rate_func=smooth)
+            self.wait(tracker.duration * 0.3)
+
+        with self.voiceover(text="<NARRATION_PLACEHOLDER_1>") as tracker:
+            area_lbl = always_redraw(lambda: latin_text(
+                f"A = π·{r.get_value():.1f}² = {3.14159 * r.get_value()**2:.2f}",
+                font_size=FONT_SIZE_LABEL, color=TEXT_COLOR
+            ).to_edge(DOWN, buff=0.6))
+            self.add(area_lbl)
+            self.play(r.animate.set_value(1.2), run_time=tracker.duration * 0.4, rate_func=smooth)
+            self.play(r.animate.set_value(2.5), run_time=tracker.duration * 0.4, rate_func=smooth)
+            self.play(Indicate(area_lbl, color=STAR_YELLOW), run_time=tracker.duration * 0.2)
+
+        self.clear()
+        with self.voiceover(text="<NARRATION_PLACEHOLDER_2>") as tracker:
+            fb = formula_box("<NARRATION_PLACEHOLDER_0>", color=TEAL_ACCENT)
+            fb.move_to(ORIGIN)
+            self.play(FadeIn(fb, scale=0.7), run_time=tracker.duration * 0.5)
+            self.play(Circumscribe(fb, color=STAR_YELLOW, time_width=2), run_time=tracker.duration * 0.3)
+            playful_bounce(self, fb)
+            self.wait(tracker.duration * 0.2)
+
+        self.wait(0.5)

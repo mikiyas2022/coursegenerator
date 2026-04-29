@@ -80,27 +80,30 @@ FONT_AMHARIC = "Nyala"    # Ge'ez script — required for Amharic
 FONT_LATIN   = "Inter"    # English / Latin labels (fallback: sans-serif)
 FONT_WEIGHT  = BOLD
 
-FONT_SIZE_TITLE  = 68
-FONT_SIZE_HEADER = 54
-FONT_SIZE_BODY   = 44
-FONT_SIZE_LABEL  = 34
-FONT_SIZE_SMALL  = 26
-FONT_SIZE_MATH   = 52
-FONT_SIZE_CAPTION = 22
+FONT_SIZE_TITLE  = 48   # was 68 — reduced to prevent overflow
+FONT_SIZE_HEADER = 38   # was 54
+FONT_SIZE_BODY   = 32   # was 44
+FONT_SIZE_LABEL  = 26   # was 34
+FONT_SIZE_SMALL  = 20   # was 26
+FONT_SIZE_MATH   = 38   # was 52
+FONT_SIZE_CAPTION = 17  # was 22
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Layout Constants — 16:9 safe zone
 # ─────────────────────────────────────────────────────────────────────────────
 
-SAFE_TOP    =  3.4
-SAFE_BOTTOM = -3.4
-SAFE_LEFT   = -6.8
-SAFE_RIGHT  =  6.8
+SAFE_TOP    =  3.2
+SAFE_BOTTOM = -3.2
+SAFE_LEFT   = -6.4
+SAFE_RIGHT  =  6.4
 CENTER      = ORIGIN
 
-# Canvas limits for generated code
-CANVAS_X_MAX = 5.5
-CANVAS_Y_MAX = 3.0
+# Canvas hard limits — NEVER place objects outside these bounds
+CANVAS_X_MAX = 5.0   # safe horizontal limit (was 5.5)
+CANVAS_Y_MAX = 2.8   # safe vertical limit   (was 3.0)
+
+# Maximum text width in Manim units (prevents horizontal overflow)
+MAX_TEXT_WIDTH = 10.5   # ~95% of 11-unit visible width
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -136,8 +139,22 @@ def latin_text(
     color: str = TEXT_COLOR,
     **kwargs,
 ) -> "Text":
-    """Render Latin / English text with the Inter font."""
-    return Text(text, font=FONT_LATIN, font_size=font_size, color=color, weight=BOLD, **kwargs)
+    """
+    Render Latin / English text with the Inter font.
+    Automatically wraps at MAX_TEXT_WIDTH to prevent canvas overflow.
+    """
+    # Force line-wrapping for long strings — prevents horizontal overflow
+    if 'width' not in kwargs:
+        # Only wrap if text is long enough to risk overflow
+        # Threshold: ~(MAX_TEXT_WIDTH / font_size) * reference_scale chars
+        char_limit = max(18, int(MAX_TEXT_WIDTH * 330 / max(font_size, 1)))
+        if len(text) > char_limit:
+            kwargs['width'] = MAX_TEXT_WIDTH
+    t = Text(text, font=FONT_LATIN, font_size=font_size, color=color, weight=BOLD, **kwargs)
+    # Hard-clamp: if still wider than canvas, scale it down
+    if t.width > MAX_TEXT_WIDTH:
+        t.scale_to_fit_width(MAX_TEXT_WIDTH)
+    return t
 
 
 def title_card(
@@ -147,16 +164,22 @@ def title_card(
     latin_color: str = MUTED_COLOR,
 ) -> "VGroup":
     """
-    Two-line title: large Amharic heading + small Latin subtitle.
-    Positioned at top of safe zone.
+    Two-line title: large heading + small Latin subtitle.
+    Width-clamped to prevent overflow.
     """
-    am = amharic_text(amharic, font_size=FONT_SIZE_HEADER, color=amharic_color)
+    # Use latin_text for the heading (wraps automatically)
+    am = latin_text(amharic, font_size=FONT_SIZE_HEADER, color=amharic_color)
+    # Ensure header fits
+    if am.width > MAX_TEXT_WIDTH:
+        am.scale_to_fit_width(MAX_TEXT_WIDTH)
     group = VGroup(am)
     if latin:
         la = latin_text(latin, font_size=FONT_SIZE_LABEL, color=latin_color)
-        la.next_to(am, DOWN, buff=0.3)
+        if la.width > MAX_TEXT_WIDTH:
+            la.scale_to_fit_width(MAX_TEXT_WIDTH)
+        la.next_to(am, DOWN, buff=0.25)
         group.add(la)
-    group.move_to(UP * 2.8)
+    group.move_to(UP * 2.6)
     return group
 
 
@@ -168,17 +191,25 @@ def formula_box(
 ) -> "VGroup":
     """
     Boxed formula text with a teal-bordered background rectangle.
+    Auto-scales down if the formula would overflow the canvas.
     Returns VGroup(rect, formula).
     """
     latex_clean = str(latex).replace("$", "").replace("^\\circ", "°")
+    # Limit formula string length to prevent extreme overflow
+    if len(latex_clean) > 40:
+        font_size = max(20, int(font_size * 0.7))
     formula = Text(latex_clean, color=color, font_size=font_size, font=FONT_LATIN)
+    # Hard-clamp formula width
+    MAX_FORMULA_WIDTH = 9.5
+    if formula.width > MAX_FORMULA_WIDTH:
+        formula.scale_to_fit_width(MAX_FORMULA_WIDTH)
     rect = SurroundingRectangle(
         formula,
         color=color,
         fill_color=bg,
         fill_opacity=0.30,
-        buff=0.3,
-        corner_radius=0.1,
+        buff=0.28,
+        corner_radius=0.12,
     )
     return VGroup(rect, formula)
 
@@ -395,16 +426,25 @@ def number_ticker(
 
 def clamp_to_screen(mob: "Mobject", margin: float = 0.3) -> "Mobject":
     """
-    Move a Mobject back onto the 16:9 safe zone if it has drifted off-screen.
-    Returns the (possibly repositioned) Mobject for chaining.
+    Ensure a Mobject fits within the 16:9 safe zone.
+    1. Scales DOWN if wider or taller than the safe zone.
+    2. Repositions so it doesn't drift outside safe bounds.
+    Returns the mob for chaining.
     """
+    safe_w = (SAFE_RIGHT - SAFE_LEFT) - 2 * margin
+    safe_h = (SAFE_TOP - SAFE_BOTTOM) - 2 * margin
+    if mob.width > safe_w:
+        mob.scale_to_fit_width(safe_w)
+    if mob.height > safe_h:
+        mob.scale_to_fit_height(safe_h)
     x, y, _ = mob.get_center()
     w, h = mob.width, mob.height
     new_x = max(SAFE_LEFT + w / 2 + margin, min(SAFE_RIGHT - w / 2 - margin, x))
     new_y = max(SAFE_BOTTOM + h / 2 + margin, min(SAFE_TOP - h / 2 - margin, y))
-    if (new_x, new_y) != (x, y):
+    if abs(new_x - x) > 0.001 or abs(new_y - y) > 0.001:
         mob.move_to([new_x, new_y, 0])
     return mob
+
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -470,28 +510,6 @@ class AmharicEduScene(VoiceoverScene, MovingCameraScene):
     def glow_dot(self, point=None, color=STAR_YELLOW, radius=0.12):
         return glow_dot(point, color, radius)
 # ─────────────────────────────────────────────────────────────────────────────
-# Blackboard Theming Engine
-# Realistic blackboard simulation for step-by-step EUEE exam solutions.
+# NOTE: Blackboard theming removed — 3B1B mode only.
+# Use AmharicEduScene for all scenes.
 # ─────────────────────────────────────────────────────────────────────────────
-
-# Blackboard Colors
-BB_BG_COLOR = "#1A2518"        # Dark green/black texture
-BB_CHALK_WHITE = "#F4F4F0"     # Chalk white
-BB_CHALK_YELLOW = "#FFF59D"    # Yellow chalk
-BB_CHALK_BLUE = "#81D4FA"      # Blue chalk
-BB_CHALK_RED = "#EF9A9A"       # Red chalk
-
-def setup_blackboard(scene: Scene) -> None:
-    """Setup realistic blackboard background."""
-    scene.camera.background_color = BB_BG_COLOR
-    Text.set_default(font="Inter", color=BB_CHALK_WHITE)
-
-class BlackboardScene(Scene):
-    """Base class for blackboard videos without TTS, realistic writing."""
-    def setup(self):
-        super().setup()
-        setup_blackboard(self)
-
-    def write_step(self, mobject: Mobject, run_time=2.0):
-        """Simulates realistic stroke-by-stroke chalk writing."""
-        self.play(Write(mobject, run_time=run_time, rate_func=linear))

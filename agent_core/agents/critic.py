@@ -20,7 +20,7 @@ from config import (
     MAX_CRITIC_RETRIES, MAX_VISUAL_RETRIES,
     get_vl_llm,
 )
-from agents.manim_coder import SCRIPT_HEADER_TEMPLATE, BLACKBOARD_HEADER_TEMPLATE
+from agents.manim_coder import SCRIPT_HEADER_TEMPLATE
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -28,14 +28,9 @@ from agents.manim_coder import SCRIPT_HEADER_TEMPLATE, BLACKBOARD_HEADER_TEMPLAT
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _build_script(code_classes: list[str], mode: str = "3b1b") -> str:
-    """Prepend the dynamic header to all scene classes.
-    Uses BLACKBOARD_HEADER_TEMPLATE for blackboard mode (no TTS).
-    """
+    """Prepend the dynamic header to all scene classes. Always 3B1B mode."""
     project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    if mode == "blackboard":
-        header = BLACKBOARD_HEADER_TEMPLATE.format(project_root=project_root)
-    else:
-        header = SCRIPT_HEADER_TEMPLATE.format(project_root=project_root)
+    header = SCRIPT_HEADER_TEMPLATE.format(project_root=project_root)
     return header + "\n\n" + "\n\n".join(code_classes)
 
 
@@ -49,7 +44,7 @@ def _extract_scene_names(code: str) -> list[str]:
     """Extract class names that inherit from scene-like bases."""
     all_classes = re.findall(r"^class\s+(\w+)\s*\([^)]*\):", code, re.MULTILINE)
     # Filter out helper classes that aren't scenes
-    skip = {"EdgeTTSService", "LocalMMSService", "AmharicEduScene", "BlackboardScene", "EdgeTTSAmharicService", "KokoroService"}
+    skip = {"EdgeTTSService", "LocalMMSService", "AmharicEduScene", "EdgeTTSAmharicService", "KokoroService"}
     return [c for c in all_classes if c not in skip]
 
 

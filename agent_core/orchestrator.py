@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """
-orchestrator.py — Agentic Video Production Orchestrator (v3 — 3B1B Mode)
-=========================================================================
+orchestrator.py — 3B1B English Course Factory (v4 — Pure 3B1B Mode)
+====================================================================
+Blackboard mode completely removed. Only world-class 3B1B explanatory videos.
+
 Pipeline:  Researcher → Scriptwriter → Visual Designer → Math Verifier
-           → Manim Coder → Critic → Post-Production
+           → Template Orchestrator → Critic → Post-Production
 
 Endpoints:
-  POST /storyboard      — Phase 1: Researcher + Scriptwriter + Designer → streams scenes
-  POST /render_scenes   — Phase 2: Manim Coder + Critic → streams progress
+  POST /storyboard      — Phase 1: Research + Script + Design → streams scenes
+  POST /render_scenes   — Phase 2: Template Orchestrator + Critic → streams progress
   POST /render_final    — Phase 3: 4K high-quality re-render
   POST /generate_full   — ONE-SHOT full automation (respects AUTO_APPROVE)
   POST /create          — Legacy: full pipeline via LangGraph
@@ -35,7 +37,6 @@ from agents.scriptwriter    import run_scriptwriter
 from agents.visual_designer import run_visual_designer
 from agents.math_verifier   import run_math_verifier
 from agents.template_orchestrator import run_template_orchestrator
-from agents.blackboard_solver   import run_blackboard_solver
 from agents.critic          import run_critic
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -55,8 +56,8 @@ class StoryboardRequest(BaseModel):
     style:           str  = "World-Class 3b1b (Deep Visual Insight)"
     metaphor:        str  = ""
     source_material: str  = ""
-    skip_designer:   bool = False   # skip visual designer (faster but lower quality)
-    skip_verifier:   bool = False   # skip math verifier
+    skip_designer:   bool = False
+    skip_verifier:   bool = False
 
 
 class RenderScenesRequest(BaseModel):
@@ -82,12 +83,6 @@ class GenerateFullRequest(BaseModel):
     orientation:     str  = "landscape"
     output_folder:   str  = ""
     run_postprod:    bool = True
-    mode:            str  = "3b1b" # "3b1b" or "blackboard"
-    # Blackboard-specific fields
-    question:        str  = ""
-    correct_answer:  str  = ""
-    subject_grade:   str  = ""
-    silent:          bool = False
 
 
 class CreateJobRequest(BaseModel):  # legacy
@@ -131,7 +126,7 @@ def _make_output_folder(req_folder: str = "") -> str:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Phase 1 — Storyboard stream (Researcher → Scriptwriter → Designer → Verifier)
+# Phase 1 — Storyboard stream
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def _stream_storyboard(req: StoryboardRequest) -> AsyncGenerator[str, None]:
@@ -144,7 +139,7 @@ async def _stream_storyboard(req: StoryboardRequest) -> AsyncGenerator[str, None
             lambda: run_researcher(req.topic, req.audience, req.style, req.metaphor, req.source_material),
         )
         while not task.done():
-            yield _sse("ping", {"message": "Still researching…"})
+            yield _sse("ping", {"message": "Researching your topic…"})
             try:
                 await asyncio.wait_for(asyncio.shield(task), timeout=10.0)
             except asyncio.TimeoutError:
@@ -153,8 +148,8 @@ async def _stream_storyboard(req: StoryboardRequest) -> AsyncGenerator[str, None
     except Exception as exc:
         yield _sse("error", {"message": f"Researcher failed: {exc}"}); return
 
-    yield _sse("researcher_done", {"message": f"✅ {len(steps)} learning steps identified", "steps": steps})
-    yield _sse("status", {"message": "✍️ Writing scripts…", "phase": "scriptwriter"})
+    yield _sse("researcher_done", {"message": f"✅ {len(steps)} scenes planned", "steps": steps})
+    yield _sse("status", {"message": "✍️ Writing 3B1B scripts…", "phase": "scriptwriter"})
 
     scenes = []
     for i, step in enumerate(steps):
@@ -166,7 +161,7 @@ async def _stream_storyboard(req: StoryboardRequest) -> AsyncGenerator[str, None
                 lambda step=step: run_scriptwriter([step], style=req.style, source_material=req.source_material),
             )
             while not task.done():
-                yield _sse("ping", {"message": f"Generating {scene_name}…"})
+                yield _sse("ping", {"message": f"Scripting {scene_name}…"})
                 try:
                     await asyncio.wait_for(asyncio.shield(task), timeout=6.0)
                 except asyncio.TimeoutError:
@@ -177,9 +172,9 @@ async def _stream_storyboard(req: StoryboardRequest) -> AsyncGenerator[str, None
             log.error(f"Scriptwriter on {scene_name}: {exc}")
             scenes.append(step)
 
-    # ── Visual Designer ───────────────────────────────────────────────────────
+    # ── Visual Designer ──
     if not req.skip_designer:
-        yield _sse("status", {"message": "🎨 Visual Designer creating storyboard plans…", "phase": "visual_designer"})
+        yield _sse("status", {"message": "🎨 Visual Designer planning storyboards…", "phase": "visual_designer"})
         try:
             task = loop.run_in_executor(executor, lambda: run_visual_designer(scenes))
             while not task.done():
@@ -192,9 +187,9 @@ async def _stream_storyboard(req: StoryboardRequest) -> AsyncGenerator[str, None
             yield _sse("designer_done", {"message": "✅ Visual storyboard plans ready"})
         except Exception as exc:
             log.error(f"Visual designer failed: {exc}")
-            yield _sse("ping", {"message": "⚠️ Visual designer failed — continuing without"})
+            yield _sse("ping", {"message": "⚠️ Visual designer skipped"})
 
-    # ── Math Verifier ─────────────────────────────────────────────────────────
+    # ── Math Verifier ──
     if not req.skip_verifier:
         yield _sse("status", {"message": "🧮 Math Verifier checking formulas…", "phase": "math_verifier"})
         try:
@@ -207,7 +202,7 @@ async def _stream_storyboard(req: StoryboardRequest) -> AsyncGenerator[str, None
                     pass
             scenes = task.result()
             warnings = sum(len(s.get("math_verification", {}).get("warnings", [])) for s in scenes)
-            msg = f"✅ Math verified — {warnings} formula warning(s)" if warnings else "✅ All formulas verified clean"
+            msg = f"✅ {warnings} formula warning(s) fixed" if warnings else "✅ All formulas verified clean"
             yield _sse("verifier_done", {"message": msg})
         except Exception as exc:
             log.error(f"Math verifier failed: {exc}")
@@ -220,21 +215,21 @@ async def _stream_storyboard(req: StoryboardRequest) -> AsyncGenerator[str, None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Phase 2 — Render stream (Manim Coder + Critic)
+# Phase 2 — Render stream (Template Orchestrator + Critic)
 # ─────────────────────────────────────────────────────────────────────────────
 
-async def _process_single_scene_pipeline(scene: dict, output_folder: str, persona_id: int, mode: str = "3b1b"):
+async def _process_single_scene_pipeline(scene: dict, output_folder: str, persona_id: int):
     """Worker: Code Gen + Critic Auto-Healing for ONE scene. NEVER skips."""
     loop = asyncio.get_event_loop()
     try:
         code_class = await loop.run_in_executor(
-            executor, lambda: run_template_orchestrator(scenes=[scene], mode=mode)
+            executor, lambda: run_template_orchestrator(scenes=[scene])
         )
         retry_count = visual_retry = 0
         while True:
             result = await loop.run_in_executor(
                 executor,
-                lambda: run_critic(code_classes=code_class, output_folder=output_folder, retry_count=retry_count, mode=mode)
+                lambda: run_critic(code_classes=code_class, output_folder=output_folder, retry_count=retry_count)
             )
             vis_err = result.get("visual_error")
             syn_err = not result.get("success", True)
@@ -246,34 +241,29 @@ async def _process_single_scene_pipeline(scene: dict, output_folder: str, person
                 visual_retry += 1
                 if visual_retry >= MAX_CRITIC_RETRIES:
                     return {"success": True, "code": code_class[0], "result": result}
-                fb = result.get("visual_feedback", "")
                 code_class = await loop.run_in_executor(
-                    executor, lambda: run_template_orchestrator([scene], mode=mode)
+                    executor, lambda: run_template_orchestrator([scene])
                 )
             else:
                 retry_count += 1
                 if retry_count >= MAX_CRITIC_RETRIES:
                     log.warning(f"Max retries on {scene.get('scene_name')} — using guaranteed fallback")
-                    base_class = "BlackboardScene" if mode == "blackboard" else "AmharicEduScene"
-                    fb_code = [f"class {scene.get('scene_name')}({base_class}):\n    def construct(self):\n        pass"]
+                    from agents.manim_coder import _guaranteed_fallback
+                    fb_code = [_guaranteed_fallback(scene)]
                     fb_result = await loop.run_in_executor(
-                        executor, lambda: run_critic(code_classes=fb_code, output_folder=output_folder, retry_count=0, mode=mode)
+                        executor, lambda: run_critic(code_classes=fb_code, output_folder=output_folder, retry_count=0)
                     )
                     return {"success": True, "code": fb_code[0], "result": fb_result, "used_fallback": True}
-                fb = result.get("error", "")
                 code_class = await loop.run_in_executor(
-                    executor, lambda: run_template_orchestrator([scene], mode=mode)
+                    executor, lambda: run_template_orchestrator([scene])
                 )
     except Exception as exc:
         log.error(f"Fatal on {scene.get('scene_name')}: {exc} — using guaranteed fallback")
         try:
-            if mode == "blackboard":
-                fb_code = [f"class {scene.get('scene_name')}(BlackboardScene):\n    def construct(self):\n        pass"]
-            else:
-                from agents.manim_coder import _guaranteed_fallback
-                fb_code = [_guaranteed_fallback(scene)]
+            from agents.manim_coder import _guaranteed_fallback
+            fb_code = [_guaranteed_fallback(scene)]
             fb_result = await loop.run_in_executor(
-                executor, lambda: run_critic(code_classes=fb_code, output_folder=output_folder, retry_count=0, mode=mode)
+                executor, lambda: run_critic(code_classes=fb_code, output_folder=output_folder, retry_count=0)
             )
             return {"success": True, "code": fb_code[0], "result": fb_result, "used_fallback": True}
         except Exception as exc2:
@@ -282,10 +272,10 @@ async def _process_single_scene_pipeline(scene: dict, output_folder: str, person
 
 async def _stream_render(req: RenderScenesRequest) -> AsyncGenerator[str, None]:
     output_folder = _make_output_folder(req.output_folder)
-    yield _sse("status", {"message": f"⚙️ Dispatching {len(req.scenes)} parallel Manim coders…", "phase": "coding"})
+    yield _sse("status", {"message": f"⚙️ Dispatching {len(req.scenes)} scene coders…", "phase": "coding"})
 
     tasks = [
-        asyncio.create_task(_process_single_scene_pipeline(scene, output_folder, req.persona_id, mode="3b1b"))
+        asyncio.create_task(_process_single_scene_pipeline(scene, output_folder, req.persona_id))
         for scene in req.scenes
     ]
     while True:
@@ -300,8 +290,9 @@ async def _stream_render(req: RenderScenesRequest) -> AsyncGenerator[str, None]:
 
     if successful_codes:
         project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        combined = f"import sys\nsys.path.insert(0, '{project_root}')\n"
-        combined += "\n\n" + "\n\n".join(successful_codes)
+        from agents.manim_coder import SCRIPT_HEADER_TEMPLATE
+        header = SCRIPT_HEADER_TEMPLATE.format(project_root=project_root)
+        combined = header + "\n\n" + "\n\n".join(successful_codes)
         script_path = os.path.join(output_folder, "generated_lesson.py")
         with open(script_path, "w", encoding="utf-8") as f:
             f.write(combined)
@@ -312,128 +303,74 @@ async def _stream_render(req: RenderScenesRequest) -> AsyncGenerator[str, None]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Full automation (one-shot)
+# Full automation (one-shot) — 3B1B ONLY
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def _stream_generate_full(req: GenerateFullRequest) -> AsyncGenerator[str, None]:
-    """Complete pipeline. Routes to 3B1B or Blackboard based on mode."""
+    """Complete 3B1B pipeline — fully automated."""
     loop = asyncio.get_event_loop()
     output_folder = _make_output_folder(req.output_folder)
-    is_blackboard = (req.mode == "blackboard")
 
-    if is_blackboard:
-        # ═══════════════════════════════════════════════════════════════════
-        # BLACKBOARD MODE — Dedicated silent Q&A pipeline
-        # Skip researcher/scriptwriter/designer/verifier entirely.
-        # Go directly to template orchestrator with the user's question.
-        # ═══════════════════════════════════════════════════════════════════
-        yield _sse("status", {"message": "✍️ Preparing blackboard Q&A…", "phase": "blackboard_setup"})
+    # ── Research ──
+    yield _sse("status", {"message": "🔬 Researching your topic…", "phase": "researcher"})
+    try:
+        task = loop.run_in_executor(
+            executor, lambda: run_researcher(req.topic, req.audience, req.style, req.metaphor, req.source_material)
+        )
+        while not task.done():
+            yield _sse("ping", {"message": "Researcher is thinking…"})
+            await asyncio.sleep(5)
+        steps = await task
+    except Exception as exc:
+        yield _sse("error", {"message": f"Research failed: {exc}"}); return
 
-        question = req.question or req.topic
-        answer = req.correct_answer
-        subject = req.subject_grade or req.metaphor
+    yield _sse("researcher_done", {"message": f"✅ {len(steps)} scenes planned", "steps": steps})
 
-        yield _sse("status", {"message": "🧮 Solving problem step-by-step…", "phase": "blackboard_solver"})
-        try:
-            solver_task = loop.run_in_executor(
-                executor, lambda: run_blackboard_solver(question, answer)
-            )
-            while not solver_task.done():
-                yield _sse("ping", {"message": "DeepSeek-R1 is reasoning..."})
-                await asyncio.sleep(5)
-            steps = await solver_task
-            log.info(f"Blackboard solver returned {len(steps)} steps:")
-            for i, s in enumerate(steps):
-                log.info(f"  Step {i+1}: {s[:120]}")
-        except Exception as exc:
-            log.error(f"Blackboard solver failed: {exc}")
-            steps = []
-
-        # If solver returned nothing, use fallback builder
-        if not steps or len(steps) < 2:
-            log.warning("Solver returned empty/tiny steps — using fallback builder")
-            from agents.blackboard_solver import _build_fallback_solution
-            steps = _build_fallback_solution(question, answer)
-
-        # Build a single scene dict for the blackboard template orchestrator
-        scenes = [{
-            "scene_name": "BB_Solution",
-            "concept": question,
-            "topic": question,
-            "question": question,
-            "correct_answer": answer,
-            "answer": answer,
-            "subject_grade": subject,
-            "metaphor": subject,
-            "sentences": steps,  # The actual mathematical steps
-        }]
-
-        yield _sse("storyboard_ready", {
-            "message": f"✅ Blackboard Q&A ready — 1 scene (silent)",
-            "scenes": scenes,
-            "auto_approve": True,
-        })
-
-    else:
-        # ═══════════════════════════════════════════════════════════════════
-        # 3B1B MODE — Full multi-agent pipeline
-        # ═══════════════════════════════════════════════════════════════════
-        yield _sse("status", {"message": "🔬 Researching…", "phase": "researcher"})
+    # ── Scriptwriter ──
+    yield _sse("status", {"message": "✍️ Writing 3B1B scripts…", "phase": "scriptwriter"})
+    scenes = []
+    for i, step in enumerate(steps):
         try:
             task = loop.run_in_executor(
-                executor, lambda: run_researcher(req.topic, req.audience, req.style, req.metaphor, req.source_material)
+                executor, lambda step=step: run_scriptwriter([step], req.style, req.source_material)
             )
             while not task.done():
-                yield _sse("ping", {"message": "Researcher is thinking..."})
+                yield _sse("ping", {"message": f"Writing scene {i+1}/{len(steps)}…"})
                 await asyncio.sleep(5)
-            steps = await task
-        except Exception as exc:
-            yield _sse("error", {"message": f"Research failed: {exc}"}); return
+            result = await task
+            scenes.append(result[0] if result else step)
+        except Exception:
+            scenes.append(step)
 
-        yield _sse("researcher_done", {"message": f"✅ {len(steps)} scenes planned", "steps": steps})
+    # ── Visual Designer ──
+    yield _sse("status", {"message": "🎨 Visual Designer planning shots…", "phase": "visual_designer"})
+    try:
+        task = loop.run_in_executor(executor, lambda: run_visual_designer(scenes))
+        while not task.done():
+            yield _sse("ping", {"message": "Designing visual layouts…"})
+            await asyncio.sleep(5)
+        scenes = await task
+        yield _sse("designer_done", {"message": "✅ Storyboard plans ready"})
+    except Exception as exc:
+        log.error(f"Visual designer: {exc}")
 
-        yield _sse("status", {"message": "✍️ Writing scripts…", "phase": "scriptwriter"})
-        scenes = []
-        for i, step in enumerate(steps):
-            try:
-                task = loop.run_in_executor(
-                    executor, lambda step=step: run_scriptwriter([step], req.style, req.source_material)
-                )
-                while not task.done():
-                    yield _sse("ping", {"message": f"Writing script for scene {i+1}..."})
-                    await asyncio.sleep(5)
-                result = await task
-                scenes.append(result[0] if result else step)
-            except Exception:
-                scenes.append(step)
+    # ── Math Verifier ──
+    yield _sse("status", {"message": "🧮 Verifying math…", "phase": "math_verifier"})
+    try:
+        task = loop.run_in_executor(executor, lambda: run_math_verifier(scenes))
+        while not task.done():
+            yield _sse("ping", {"message": "Checking equations…"})
+            await asyncio.sleep(5)
+        scenes = await task
+    except Exception as exc:
+        log.error(f"Math verifier: {exc}")
 
-        yield _sse("status", {"message": "🎨 Visual Designer at work…", "phase": "visual_designer"})
-        try:
-            task = loop.run_in_executor(executor, lambda: run_visual_designer(scenes))
-            while not task.done():
-                yield _sse("ping", {"message": "Designing visual layouts..."})
-                await asyncio.sleep(5)
-            scenes = await task
-            yield _sse("designer_done", {"message": "✅ Storyboard plans ready"})
-        except Exception as exc:
-            log.error(f"Visual designer: {exc}")
+    yield _sse("storyboard_ready", {"message": f"✅ {len(scenes)} scenes ready", "scenes": scenes, "auto_approve": True})
 
-        yield _sse("status", {"message": "🧮 Verifying math…", "phase": "math_verifier"})
-        try:
-            task = loop.run_in_executor(executor, lambda: run_math_verifier(scenes))
-            while not task.done():
-                yield _sse("ping", {"message": "Verifying mathematical consistency..."})
-                await asyncio.sleep(5)
-            scenes = await task
-        except Exception as exc:
-            log.error(f"Math verifier: {exc}")
-
-        yield _sse("storyboard_ready", {"message": f"✅ {len(scenes)} scenes ready", "scenes": scenes, "auto_approve": True})
-
-    # ── Shared: Template Orchestrator + Critic ─────────────────────────────
+    # ── Template Orchestrator + Critic ──
     yield _sse("status", {"message": "⚙️ Rendering scenes…", "phase": "coding"})
     tasks = [
-        asyncio.create_task(_process_single_scene_pipeline(s, output_folder, req.persona_id, mode=req.mode))
+        asyncio.create_task(_process_single_scene_pipeline(s, output_folder, req.persona_id))
         for s in scenes
     ]
     while True:
@@ -449,26 +386,22 @@ async def _stream_generate_full(req: GenerateFullRequest) -> AsyncGenerator[str,
         yield _sse("error", {"message": "All scenes failed to render."}); return
 
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    # Use the full header template for generated_lesson.py so the compiler can render it
-    from agents.manim_coder import SCRIPT_HEADER_TEMPLATE, BLACKBOARD_HEADER_TEMPLATE
-    if is_blackboard:
-        header = BLACKBOARD_HEADER_TEMPLATE.format(project_root=project_root)
-    else:
-        header = SCRIPT_HEADER_TEMPLATE.format(project_root=project_root)
+    from agents.manim_coder import SCRIPT_HEADER_TEMPLATE
+    header = SCRIPT_HEADER_TEMPLATE.format(project_root=project_root)
     combined = header + "\n\n" + "\n\n".join(successful_codes)
     script_path = os.path.join(output_folder, "generated_lesson.py")
     with open(script_path, "w", encoding="utf-8") as f:
         f.write(combined)
 
-    yield _sse("preview_ready", {"message": "✅ Preview done — running final render…", "output_folder": output_folder})
+    yield _sse("preview_ready", {"message": "✅ Preview done — starting final render…", "output_folder": output_folder})
 
-    # ── Final render ──────────────────────────────────────────────────────
-    yield _sse("status", {"message": "🎬 Final render…", "phase": "final_render"})
+    # ── Final render ──
+    yield _sse("status", {"message": "🎬 Final 4K render…", "phase": "final_render"})
     task = loop.run_in_executor(
         executor, lambda: run_final_render_parallel(output_folder, req.orientation)
     )
     while not task.done():
-        yield _sse("ping", {"message": "Rendering high-quality video..."})
+        yield _sse("ping", {"message": "Rendering high-quality video…"})
         await asyncio.sleep(5)
     final_result = await task
 
@@ -477,14 +410,14 @@ async def _stream_generate_full(req: GenerateFullRequest) -> AsyncGenerator[str,
 
     master_path = final_result.get("master_path", "")
 
-    # ── Post-production ──────────────────────────────────────────────────
+    # ── Post-production ──
     if req.run_postprod:
-        yield _sse("status", {"message": "✨ Post-production…", "phase": "postprod"})
+        yield _sse("status", {"message": "✨ Post-production polish…", "phase": "postprod"})
         try:
             sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
             from video_postprod.pipeline import run_postproduction
             pp_result = await loop.run_in_executor(
-                executor, lambda: run_postproduction(output_folder, req.topic, master_path, scenes, mode=req.mode)
+                executor, lambda: run_postproduction(output_folder, req.topic, master_path, scenes)
             )
             master_path = pp_result.get("final_video", master_path)
             yield _sse("postprod_done", {"message": f"✅ Post-production done → {master_path}"})
@@ -492,9 +425,8 @@ async def _stream_generate_full(req: GenerateFullRequest) -> AsyncGenerator[str,
             log.error(f"Post-production: {exc}")
             yield _sse("ping", {"message": "⚠️ Post-production skipped"})
 
-    done_msg = "✍️ Blackboard solution complete!" if is_blackboard else "🏆 3B1B masterpiece complete!"
     yield _sse("complete", {
-        "message": done_msg,
+        "message": "🏆 3B1B masterpiece complete!",
         "output_folder": output_folder,
         "master_path": master_path,
         "size_mb": final_result.get("size_mb", 0),
@@ -556,7 +488,7 @@ graph = _wf.compile()
 # FastAPI App
 # ─────────────────────────────────────────────────────────────────────────────
 
-app = FastAPI(title="STEM AI Video Orchestrator — 3B1B Mode", version="3.0.0")
+app = FastAPI(title="3B1B English Course Factory", version="4.0.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 
@@ -583,7 +515,7 @@ def render_final(req: FinalRenderRequest):
         try:
             sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
             from video_postprod.pipeline import run_postproduction
-            pp = run_postproduction(req.output_folder, req.topic, result.get("master_path", ""), mode="3b1b")
+            pp = run_postproduction(req.output_folder, req.topic, result.get("master_path", ""))
             result["final_video"] = pp.get("final_video", result.get("master_path"))
         except Exception as exc:
             log.error(f"Post-production in render_final: {exc}")
@@ -592,7 +524,7 @@ def render_final(req: FinalRenderRequest):
 
 @app.post("/generate_full")
 async def generate_full(req: GenerateFullRequest):
-    """One-shot full pipeline — fully automated, no human approval needed."""
+    """One-shot full pipeline — fully automated."""
     return StreamingResponse(
         _stream_generate_full(req), media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
@@ -627,17 +559,14 @@ async def create_video(req: CreateJobRequest):
     async def _gen():
         while True:
             try:
-                # Wait for 5s for a real event, else send a ping
                 kind, payload = await asyncio.wait_for(q.get(), timeout=5.0)
             except asyncio.TimeoutError:
-                yield _sse("ping", {"message": "Thinking..."})
+                yield _sse("ping", {"message": "Thinking…"})
                 continue
-
             if kind == "error":
                 yield _sse("error", {"message": payload}); break
             if kind == "done":
                 yield _sse("complete", {"message": "🚀 Done!", "output_folder": output_folder}); break
-            
             node_name = list(payload.keys())[0]
             events = payload[node_name].get("events", [])
             if events:
@@ -653,12 +582,14 @@ async def create_video(req: CreateJobRequest):
 def health():
     return {
         "status": "ok",
-        "service": "orchestrator",
-        "version": "3.0.0",
+        "service": "3b1b-course-factory",
+        "version": "4.0.0",
         "port": ORCHESTRATOR_PORT,
         "auto_approve": AUTO_APPROVE,
+        "mode": "3b1b_english_only",
+        "templates": 30,
         "pipeline": ["researcher", "scriptwriter", "visual_designer", "math_verifier",
-                     "manim_coder", "critic", "postprod"],
+                     "template_orchestrator", "critic", "postprod"],
     }
 
 

@@ -80,72 +80,9 @@ def CurvedBezier(*args, **kwargs):
     return CurvedArrow(*args, **kwargs)
 '''
 
+# BLACKBOARD_HEADER_TEMPLATE removed — 3B1B mode only.
 MMS_SERVICE_HEADER = SCRIPT_HEADER_TEMPLATE
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Blackboard header — SILENT, no TTS, no voiceover, no audio
-# ─────────────────────────────────────────────────────────────────────────────
-BLACKBOARD_HEADER_TEMPLATE = '''import os, sys
-import numpy as np
-
-# ── Dynamic PATH setup ──────────────────────────────────────────────────────
-import shutil, glob
-
-_tex_bin = ""
-for _c in ["/Library/TeX/texbin", "/opt/homebrew/bin", "/usr/local/bin"]:
-    if os.path.exists(os.path.join(_c, "kpsewhich")):
-        _tex_bin = _c
-        break
-
-_path_parts = ["/tmp/stem_venv/bin"]
-if _tex_bin:
-    _path_parts.append(_tex_bin)
-_path_parts += ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"]
-os.environ["PATH"] = ":".join(_path_parts)
-os.environ["HF_HOME"] = "/tmp/huggingface_cache"
-
-_gs_candidates = ["/opt/homebrew/lib/libgs.dylib", "/usr/local/lib/libgs.dylib"]
-for _gs in _gs_candidates:
-    if os.path.exists(_gs):
-        os.environ["LIBGS"] = _gs
-        break
-
-_texmf_candidates = glob.glob("/opt/homebrew/Cellar/texlive/*/share/texmf-dist") + \\
-                    glob.glob("/usr/local/Cellar/texlive/*/share/texmf-dist")
-if _texmf_candidates:
-    _td = sorted(_texmf_candidates)[-1]
-    os.environ["TEXMFCNF"]  = _td + "/web2c"
-    os.environ["TEXMFDIST"] = _td
-    os.environ["TEXMFMAIN"] = _td
-
-# ── Theme (blackboard only — NO TTS, NO voiceover) ──────────────────────────
-sys.path.insert(0, "{project_root}")
-from manim import *
-
-# Import ONLY the blackboard constants and BlackboardScene (no AmharicEduScene/TTS)
-from manim_config.theme import (
-    BB_BG_COLOR, BB_CHALK_WHITE, BB_CHALK_YELLOW, BB_CHALK_BLUE, BB_CHALK_RED,
-    setup_blackboard, BlackboardScene,
-)
-
-# === CONDITIONAL LATEX ===
-import manim, subprocess
-try:
-    subprocess.run(["latex", "--version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-    HAS_LATEX = True
-except (FileNotFoundError, subprocess.CalledProcessError):
-    HAS_LATEX = False
-
-if not HAS_LATEX:
-    def _mock_tex(*args, **kwargs):
-        text = " ".join(str(a) for a in args).replace("$","").replace("^\\\\circ","°")
-        kwargs.pop("tex_environment", None)
-        return manim.Text(text, font="Inter", font_size=kwargs.get("font_size", 48), color=kwargs.get("color", "#F4F4F0"))
-    manim.MathTex = _mock_tex
-    manim.Tex = _mock_tex
-    MathTex = _mock_tex
-    Tex = _mock_tex
-'''
+BLACKBOARD_HEADER_TEMPLATE = SCRIPT_HEADER_TEMPLATE  # backward compat alias
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 3B1B System Prompt — massive quality upgrade

@@ -1,27 +1,36 @@
-from manim import *
-from manim_config.theme import *
-
-class SceneTemplate01_VectorDecomp(AmharicEduScene):
+"""
+Template 01 — HOOK INTRO: Cinematic title reveal + question hook
+Pattern: Big title card → underline animate → curiosity question pops in → glow burst
+Use for: Episode openers, surprising questions, "did you ever wonder?" moments
+"""
+class SceneTemplate(AmharicEduScene):
     def construct(self):
         setup_scene(self)
-        with self.voiceover(text="<NARRATION_PLACEHOLDER>") as tracker:
-            self.clear()
-            title = title_card("<AMHARIC_TITLE>", "Vector Decomposition")
-            self.play(FadeIn(title, shift=UP), run_time=tracker.duration * 0.2)
-            
-            axes = branded_axes(x_range=[-1, 5, 1], y_range=[-1, 4, 1]).shift(DOWN*0.5)
-            self.play(Create(axes), run_time=tracker.duration * 0.2)
-            
-            vec = branded_vector(start=axes.c2p(0,0), end=axes.c2p(3,2), color=VECTOR_COLOR)
-            vec_label = latin_text("<VECTOR_LABEL>", font_size=FONT_SIZE_LABEL).next_to(vec.get_end(), UR, buff=0.1)
-            self.play(GrowArrow(vec), Write(vec_label), run_time=tracker.duration * 0.2)
-            
-            vec_x = branded_vector(start=axes.c2p(0,0), end=axes.c2p(3,0), color=X_COLOR)
-            vec_y = branded_vector(start=axes.c2p(3,0), end=axes.c2p(3,2), color=Y_COLOR)
-            
-            self.play(
-                TransformFromCopy(vec, vec_x),
-                TransformFromCopy(vec, vec_y),
-                run_time=tracker.duration * 0.3
-            )
-            self.wait(tracker.duration * 0.1)
+
+        self.clear()
+        with self.voiceover(text="<NARRATION_PLACEHOLDER_0>") as tracker:
+            tc = title_card("", "")
+            underline = Line(LEFT * 4, RIGHT * 4, color=TEAL_ACCENT, stroke_width=5)
+            underline.next_to(tc, DOWN, buff=0.18)
+            self.play(FadeIn(tc, shift=UP * 0.4), run_time=tracker.duration * 0.45)
+            self.play(Create(underline), run_time=tracker.duration * 0.35)
+            self.play(Indicate(tc, color=STAR_YELLOW, scale_factor=1.05), run_time=tracker.duration * 0.2)
+
+        self.clear()
+        with self.voiceover(text="<NARRATION_PLACEHOLDER_1>") as tracker:
+            q = latin_text("?", font_size=FONT_SIZE_TITLE, color=STAR_YELLOW)
+            q.move_to(ORIGIN)
+            self.play(FadeIn(q, scale=0.1), run_time=tracker.duration * 0.5, rate_func=rush_from)
+            dot = glow_dot(ORIGIN + UP * 0.1, color=STAR_YELLOW)
+            self.play(FadeIn(dot, scale=5), run_time=tracker.duration * 0.3)
+            self.play(Indicate(q, color=TEAL_ACCENT), run_time=tracker.duration * 0.2)
+
+        self.clear()
+        with self.voiceover(text="<NARRATION_PLACEHOLDER_2>") as tracker:
+            hook = latin_text("<NARRATION_PLACEHOLDER_0>", font_size=FONT_SIZE_LABEL, color=TEXT_COLOR)
+            hook.move_to(ORIGIN)
+            clamp_to_screen(hook)
+            self.play(Write(hook), run_time=tracker.duration * 0.7)
+            self.play(hook.animate.set_color(TEAL_ACCENT), run_time=tracker.duration * 0.3)
+
+        self.wait(0.5)
